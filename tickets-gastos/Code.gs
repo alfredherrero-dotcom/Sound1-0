@@ -581,9 +581,11 @@ function crearPdf_(imagen, titulo, lineasInfo) {
     cuerpo.setMarginTop(margen).setMarginBottom(margen)
       .setMarginLeft(margen).setMarginRight(margen);
 
-    cuerpo.getParagraphs()[0].setText(titulo).setHeading(DocumentApp.ParagraphHeading.HEADING3);
+    const cabecera = cuerpo.getParagraphs()[0];
+    cabecera.setText(titulo);
+    cabecera.setHeading(DocumentApp.ParagraphHeading.HEADING3);
     lineasInfo.forEach(function (linea) {
-      cuerpo.appendParagraph(linea).setFontSize(10);
+      cuerpo.appendParagraph(linea).editAsText().setFontSize(10);
     });
 
     const img = cuerpo.appendImage(imagen);
