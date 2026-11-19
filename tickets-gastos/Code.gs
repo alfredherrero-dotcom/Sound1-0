@@ -3,19 +3,31 @@
  *
  * - Haces una foto del ticket desde el móvil.
  * - Se lee automáticamente (OCR de Google Drive) para sugerir fecha, hora,
- *   comercio e importe; tú los revisas y corriges si hace falta.
+ *   comercio e importe; tú los revisas, eliges categoría y proyecto.
  * - Se guarda en Drive como PDF (más la foto original) en
- *   "Tickets de gastos/AAAA/MM - Mes".
- * - Se añade una fila a la hoja de cálculo "Gastos - Tickets":
- *   Fecha | Hora | Comercio | Importe  (el comercio enlaza al PDF).
+ *   "<carpeta elegida>/AAAA/MM - Mes".
+ * - Se añade una fila a la hoja de cálculo:
+ *   Fecha | Hora | Comercio | Categoría | Proyecto | Importe
+ *   (el comercio enlaza al PDF).
+ * - Totales por periodo y proyecto en la app y en la pestaña "Resumen".
+ * - Carpeta, nombre de la hoja y categorías se cambian desde ⚙️ Ajustes.
  */
 
+/** Valores por defecto (se pueden cambiar desde la pantalla de Ajustes). */
 const CONFIG = {
   NOMBRE_CARPETA: 'Tickets de gastos',
   NOMBRE_HOJA: 'Gastos - Tickets',
   NOMBRE_PESTANA: 'Gastos',
+  NOMBRE_RESUMEN: 'Resumen',
   SUBCARPETA_FOTOS: 'Fotos originales',
+  CATEGORIAS: ['Comida', 'Transporte', 'Combustible', 'Alojamiento', 'Parking y peajes',
+    'Material', 'Teléfono e internet', 'Otros'],
 };
+
+const COL = { FECHA: 1, HORA: 2, COMERCIO: 3, CATEGORIA: 4, PROYECTO: 5, IMPORTE: 6 };
+const NCOLS = 6;
+const CABECERAS = ['Fecha', 'Hora', 'Comercio', 'Categoría', 'Proyecto', 'Importe'];
+const MAX_RECORDADOS = 100; // comercios cuya categoría se recuerda
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio',
   'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -43,33 +55,49 @@ function configurar() {
   console.log('Hoja de cálculo: ' + hoja.getParent().getUrl());
 }
 
-/** Datos para la pantalla principal: enlaces y últimos tickets. */
+/** Datos para la pantalla principal: listas, enlaces y últimos tickets. */
 function obtenerResumen() {
   const carpeta = obtenerCarpetaRaiz_();
   const hoja = obtenerHoja_();
   const tz = Session.getScriptTimeZone();
   const ultimaFila = hoja.getLastRow();
   const ultimos = [];
+  const proyectos = {};
+
   if (ultimaFila > 1) {
+    const n = ultimaFila - 1;
+    hoja.getRange(2, COL.PROYECTO, n, 1).getValues().forEach(function (f) {
+      const p = String(f[0]).trim();
+      if (p) proyectos[p] = true;
+    });
+
     const desde = Math.max(2, ultimaFila - 4);
-    const rango = hoja.getRange(desde, 1, ultimaFila - desde + 1, 4);
-    const valores = rango.getValues();
-    const enlaces = hoja.getRange(desde, 3, ultimaFila - desde + 1, 1).getRichTextValues();
+    const k = ultimaFila - desde + 1;
+    const valores = hoja.getRange(desde, 1, k, NCOLS).getValues();
+    const enlaces = hoja.getRange(desde, COL.COMERCIO, k, 1).getRichTextValues();
     for (let i = valores.length - 1; i >= 0; i--) {
-      const [fecha, hora, comercio, importe] = valores[i];
+      const v = valores[i];
       ultimos.push({
-        fecha: fecha instanceof Date ? Utilities.formatDate(fecha, tz, 'dd/MM/yyyy') : String(fecha),
-        hora: hora instanceof Date ? Utilities.formatDate(hora, tz, 'HH:mm') : String(hora),
-        comercio: String(comercio),
-        importe: Number(importe) || 0,
+        fecha: v[0] instanceof Date ? Utilities.formatDate(v[0], tz, 'dd/MM/yyyy') : String(v[0]),
+        hora: v[1] instanceof Date ? Utilities.formatDate(v[1], tz, 'HH:mm') : String(v[1]),
+        comercio: String(v[2]),
+        categoria: String(v[3]),
+        proyecto: String(v[4]),
+        importe: Number(v[5]) || 0,
         url: enlaces[i][0] ? enlaces[i][0].getLinkUrl() : null,
       });
     }
   }
+
   return {
     carpetaUrl: carpeta.getUrl(),
     hojaUrl: hoja.getParent().getUrl(),
+    nombreHoja: hoja.getParent().getName(),
     ultimos: ultimos,
+    categorias: obtenerCategorias_(),
+    proyectos: Object.keys(proyectos).sort(function (a, b) { return a.localeCompare(b, 'es'); }),
+    ultimoProyecto: props_().getProperty('ULTIMO_PROYECTO') || '',
+    categoriaPorComercio: leerRecordados_(),
   };
 }
 
@@ -101,11 +129,13 @@ function analizarTicket(imagenBase64, mimeType) {
   const tz = Session.getScriptTimeZone();
   const ahora = new Date();
   const encontrado = parsearTextoTicket_(texto);
+  const comercio = encontrado.comercio || '';
   return {
     fecha: encontrado.fecha || Utilities.formatDate(ahora, tz, 'yyyy-MM-dd'),
     hora: encontrado.hora || Utilities.formatDate(ahora, tz, 'HH:mm'),
-    comercio: encontrado.comercio || '',
+    comercio: comercio,
     importe: encontrado.importe != null ? encontrado.importe : '',
+    categoria: comercio ? (leerRecordados_()[normalizar_(comercio)] || '') : '',
     detectado: {
       fecha: !!encontrado.fecha,
       hora: !!encontrado.hora,
@@ -118,18 +148,22 @@ function analizarTicket(imagenBase64, mimeType) {
 /**
  * Guarda el ticket: PDF + foto original en Drive y fila en la hoja.
  * @param {{imagenBase64:string, mimeType:string, fecha:string, hora:string,
- *          comercio:string, importe:(number|string)}} datos
+ *          comercio:string, categoria:string, proyecto:string,
+ *          importe:(number|string)}} datos
  */
 function guardarTicket(datos) {
   const fecha = String(datos.fecha || '');
   const hora = String(datos.hora || '');
   const comercio = String(datos.comercio || '').trim();
+  const categoria = String(datos.categoria || '').trim();
+  const proyecto = String(datos.proyecto || '').trim();
   const importe = aNumero_(String(datos.importe));
 
   const mFecha = fecha.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!mFecha) throw new Error('La fecha no es válida.');
   if (!/^\d{2}:\d{2}$/.test(hora)) throw new Error('La hora no es válida.');
   if (!comercio) throw new Error('Falta el nombre del comercio.');
+  if (!categoria) throw new Error('Elige una categoría.');
   if (importe == null || isNaN(importe)) throw new Error('El importe no es válido.');
   if (!datos.imagenBase64) throw new Error('Falta la foto del ticket.');
 
@@ -137,7 +171,7 @@ function guardarTicket(datos) {
   const mes = Number(mFecha[2]);
   const dia = Number(mFecha[3]);
 
-  // Carpetas: Tickets de gastos / 2026 / 11 - Noviembre / Fotos originales
+  // Carpetas: <carpeta elegida> / 2026 / 11 - Noviembre / Fotos originales
   const raiz = obtenerCarpetaRaiz_();
   const carpetaAnio = obtenerSubcarpeta_(raiz, anio);
   const carpetaMes = obtenerSubcarpeta_(carpetaAnio, pad2_(mes) + ' - ' + MESES[mes - 1]);
@@ -153,11 +187,13 @@ function guardarTicket(datos) {
     Utilities.base64Decode(datos.imagenBase64), mime, nombreBase + extension);
 
   const foto = carpetaFotos.createFile(imagen);
-  const pdf = carpetaMes.createFile(crearPdf_(imagen, nombreBase, [
+  const info = [
     'Fecha: ' + pad2_(dia) + '/' + pad2_(mes) + '/' + anio + '   Hora: ' + hora,
     'Comercio: ' + comercio,
+    'Categoría: ' + categoria + (proyecto ? '   Proyecto: ' + proyecto : ''),
     'Importe: ' + importeTexto,
-  ]));
+  ];
+  const pdf = carpetaMes.createFile(crearPdf_(imagen, nombreBase, info));
   pdf.setDescription('Ticket de gasto. Foto original: ' + foto.getUrl());
 
   // Fila en la hoja de cálculo (con bloqueo por si se guardan dos a la vez).
@@ -166,10 +202,14 @@ function guardarTicket(datos) {
   try {
     const hoja = obtenerHoja_();
     const fila = hoja.getLastRow() + 1;
-    hoja.getRange(fila, 1, 1, 4).setValues([[new Date(Number(anio), mes - 1, dia), hora, comercio, importe]]);
-    hoja.getRange(fila, 3).setRichTextValue(
+    hoja.getRange(fila, 1, 1, NCOLS).setValues([[
+      new Date(Number(anio), mes - 1, dia), hora, comercio, categoria, proyecto, importe]]);
+    hoja.getRange(fila, COL.COMERCIO).setRichTextValue(
       SpreadsheetApp.newRichTextValue().setText(comercio).setLinkUrl(pdf.getUrl()).build());
     SpreadsheetApp.flush();
+
+    recordarCategoria_(comercio, categoria);
+    props_().setProperty('ULTIMO_PROYECTO', proyecto);
   } finally {
     lock.releaseLock();
   }
@@ -177,13 +217,187 @@ function guardarTicket(datos) {
   return { pdfUrl: pdf.getUrl(), nombre: pdf.getName() };
 }
 
+/**
+ * Totales entre dos fechas (incluidas), opcionalmente de un proyecto.
+ * @param {string} desde AAAA-MM-DD
+ * @param {string} hasta AAAA-MM-DD
+ * @param {string} proyecto '' = todos, '__sin__' = sin proyecto
+ */
+function obtenerTotales(desde, hasta, proyecto) {
+  const d = fechaDesdeIso_(desde);
+  const h = fechaDesdeIso_(hasta);
+  if (!d || !h) throw new Error('Elige las fechas del periodo.');
+  if (d > h) throw new Error('La fecha "Desde" es posterior a "Hasta".');
+  const hFin = new Date(h.getFullYear(), h.getMonth(), h.getDate() + 1); // exclusivo
+
+  const hoja = obtenerHoja_();
+  const n = hoja.getLastRow() - 1;
+  const res = { total: 0, tickets: 0, porCategoria: [], porProyecto: [] };
+  if (n < 1) return res;
+
+  const porCat = {};
+  const porPro = {};
+  hoja.getRange(2, 1, n, NCOLS).getValues().forEach(function (v) {
+    const fecha = v[COL.FECHA - 1];
+    const importe = Number(v[COL.IMPORTE - 1]);
+    if (!(fecha instanceof Date) || isNaN(importe)) return;
+    if (fecha < d || fecha >= hFin) return;
+    const pro = String(v[COL.PROYECTO - 1]).trim();
+    if (proyecto === '__sin__' ? pro !== '' : (proyecto && pro !== proyecto)) return;
+    const cat = String(v[COL.CATEGORIA - 1]).trim() || 'Sin categoría';
+    res.total += importe;
+    res.tickets++;
+    porCat[cat] = (porCat[cat] || 0) + importe;
+    const clavePro = pro || 'Sin proyecto';
+    porPro[clavePro] = (porPro[clavePro] || 0) + importe;
+  });
+
+  const aLista = function (obj) {
+    return Object.keys(obj).map(function (k) { return { nombre: k, total: redondear_(obj[k]) }; })
+      .sort(function (a, b) { return b.total - a.total; });
+  };
+  res.total = redondear_(res.total);
+  res.porCategoria = aLista(porCat);
+  res.porProyecto = aLista(porPro);
+  return res;
+}
+
+/* ------------------------------------------------------------------ */
+/* Ajustes                                                             */
+/* ------------------------------------------------------------------ */
+
+function obtenerConfiguracion() {
+  const carpeta = obtenerCarpetaRaiz_();
+  const libro = obtenerHoja_().getParent();
+  return {
+    carpeta: { id: carpeta.getId(), nombre: carpeta.getName(), ruta: rutaCarpeta_(carpeta) },
+    nombreHoja: libro.getName(),
+    hojaUrl: libro.getUrl(),
+    categorias: obtenerCategorias_(),
+  };
+}
+
+/**
+ * Lista las subcarpetas de una carpeta de Drive (para el selector).
+ * @param {string=} idOEnlace ID o enlace de la carpeta; vacío = Mi unidad.
+ */
+function listarCarpetas(idOEnlace) {
+  let carpeta;
+  if (!idOEnlace) {
+    carpeta = DriveApp.getRootFolder();
+  } else {
+    try {
+      carpeta = DriveApp.getFolderById(extraerIdDrive_(idOEnlace));
+      carpeta.getName();
+    } catch (e) {
+      throw new Error('No encuentro esa carpeta. Revisa el enlace o que tengas acceso.');
+    }
+  }
+  const subcarpetas = [];
+  const it = carpeta.getFolders();
+  while (it.hasNext() && subcarpetas.length < 300) {
+    const f = it.next();
+    if (!f.isTrashed()) subcarpetas.push({ id: f.getId(), nombre: f.getName() });
+  }
+  subcarpetas.sort(function (a, b) { return a.nombre.localeCompare(b.nombre, 'es'); });
+  const ruta = rutaCarpeta_(carpeta);
+  return {
+    id: carpeta.getId(),
+    nombre: ruta[ruta.length - 1].nombre,
+    ruta: ruta,
+    subcarpetas: subcarpetas,
+  };
+}
+
+function crearCarpeta(idPadre, nombre) {
+  nombre = String(nombre || '').trim();
+  if (!nombre) throw new Error('Escribe un nombre para la carpeta.');
+  const padre = idPadre ? DriveApp.getFolderById(idPadre) : DriveApp.getRootFolder();
+  return listarCarpetas(padre.createFolder(nombre).getId());
+}
+
+/**
+ * Guarda los ajustes.
+ * @param {{carpetaId:string, nombreHoja:string, renombrar:boolean,
+ *          categorias:string[]}} cfg
+ *   renombrar = true: se sigue usando la hoja actual (se renombra y se mueve
+ *   a la carpeta elegida). false: se usa la hoja con ese nombre que haya en
+ *   la carpeta, o se crea una nueva.
+ */
+function guardarConfiguracion(cfg) {
+  const p = props_();
+  const nombre = String(cfg.nombreHoja || '').trim();
+  if (!nombre) throw new Error('Escribe el nombre de la hoja de cálculo.');
+
+  const vistas = {};
+  const categorias = (cfg.categorias || []).map(function (c) { return String(c).trim(); })
+    .filter(function (c) {
+      const k = c.toLowerCase();
+      if (!c || vistas[k]) return false;
+      vistas[k] = true;
+      return true;
+    });
+  if (!categorias.length) throw new Error('Añade al menos una categoría.');
+
+  let carpeta;
+  try {
+    carpeta = DriveApp.getFolderById(extraerIdDrive_(cfg.carpetaId));
+    carpeta.getName();
+  } catch (e) {
+    throw new Error('No encuentro la carpeta elegida.');
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    p.setProperty('CARPETA_ID', carpeta.getId());
+    p.setProperty('CATEGORIAS', JSON.stringify(categorias));
+    p.setProperty('NOMBRE_HOJA', nombre);
+
+    let actual = null;
+    const idActual = p.getProperty('HOJA_ID');
+    if (idActual) {
+      try {
+        const f = DriveApp.getFileById(idActual);
+        if (!f.isTrashed()) actual = f;
+      } catch (e) { /* no existe */ }
+    }
+
+    if (cfg.renombrar && actual) {
+      if (actual.getName() !== nombre) actual.setName(nombre);
+      if (!estaEnCarpeta_(actual, carpeta)) actual.moveTo(carpeta);
+    } else {
+      const libro = buscarLibroEnCarpeta_(carpeta, nombre) || crearLibro_(carpeta, nombre);
+      p.setProperty('HOJA_ID', libro.getId());
+    }
+
+    const hoja = obtenerHoja_();
+    aplicarValidacionCategorias_(hoja);
+  } finally {
+    lock.releaseLock();
+  }
+  return obtenerConfiguracion();
+}
+
 /* ------------------------------------------------------------------ */
 /* Drive y hoja de cálculo                                            */
 /* ------------------------------------------------------------------ */
 
+function props_() {
+  return PropertiesService.getScriptProperties();
+}
+
+function obtenerCategorias_() {
+  try {
+    const c = JSON.parse(props_().getProperty('CATEGORIAS'));
+    if (Array.isArray(c) && c.length) return c;
+  } catch (e) { /* por defecto */ }
+  return CONFIG.CATEGORIAS.slice();
+}
+
 function obtenerCarpetaRaiz_() {
-  const props = PropertiesService.getScriptProperties();
-  const id = props.getProperty('CARPETA_ID');
+  const p = props_();
+  const id = p.getProperty('CARPETA_ID');
   if (id) {
     try {
       const carpeta = DriveApp.getFolderById(id);
@@ -192,7 +406,7 @@ function obtenerCarpetaRaiz_() {
   }
   const existentes = DriveApp.getFoldersByName(CONFIG.NOMBRE_CARPETA);
   const carpeta = existentes.hasNext() ? existentes.next() : DriveApp.createFolder(CONFIG.NOMBRE_CARPETA);
-  props.setProperty('CARPETA_ID', carpeta.getId());
+  p.setProperty('CARPETA_ID', carpeta.getId());
   return carpeta;
 }
 
@@ -201,41 +415,160 @@ function obtenerSubcarpeta_(padre, nombre) {
   return existentes.hasNext() ? existentes.next() : padre.createFolder(nombre);
 }
 
-/** Devuelve la pestaña "Gastos" de la hoja; la crea si no existe. */
-function obtenerHoja_() {
-  const props = PropertiesService.getScriptProperties();
-  const id = props.getProperty('HOJA_ID');
-  let ss = null;
+function estaEnCarpeta_(archivo, carpeta) {
+  const padres = archivo.getParents();
+  while (padres.hasNext()) {
+    if (padres.next().getId() === carpeta.getId()) return true;
+  }
+  return false;
+}
+
+let idRaiz_ = null;
+function rutaCarpeta_(carpeta) {
+  if (!idRaiz_) idRaiz_ = DriveApp.getRootFolder().getId();
+  const ruta = [];
+  let actual = carpeta;
+  for (let i = 0; i < 25 && actual; i++) {
+    const esRaiz = actual.getId() === idRaiz_;
+    ruta.unshift({ id: actual.getId(), nombre: esRaiz ? 'Mi unidad' : actual.getName() });
+    if (esRaiz) break;
+    const padres = actual.getParents();
+    actual = padres.hasNext() ? padres.next() : null;
+  }
+  return ruta;
+}
+
+function extraerIdDrive_(s) {
+  s = String(s || '').trim();
+  const m = s.match(/folders\/([-\w]{10,})/) || s.match(/[?&]id=([-\w]{10,})/);
+  return m ? m[1] : s;
+}
+
+function buscarLibroEnCarpeta_(carpeta, nombre) {
+  const it = carpeta.getFilesByName(nombre);
+  while (it.hasNext()) {
+    const f = it.next();
+    if (f.getMimeType() === MimeType.GOOGLE_SHEETS && !f.isTrashed()) {
+      return SpreadsheetApp.openById(f.getId());
+    }
+  }
+  return null;
+}
+
+function crearLibro_(carpeta, nombre) {
+  const ss = SpreadsheetApp.create(nombre);
+  DriveApp.getFileById(ss.getId()).moveTo(carpeta);
+  return ss;
+}
+
+function obtenerLibro_() {
+  const p = props_();
+  const id = p.getProperty('HOJA_ID');
   if (id) {
     try {
-      if (!DriveApp.getFileById(id).isTrashed()) ss = SpreadsheetApp.openById(id);
-    } catch (e) { /* se volverá a crear */ }
+      if (!DriveApp.getFileById(id).isTrashed()) return SpreadsheetApp.openById(id);
+    } catch (e) { /* se buscará o creará */ }
   }
-  if (!ss) {
-    ss = SpreadsheetApp.create(CONFIG.NOMBRE_HOJA);
-    DriveApp.getFileById(ss.getId()).moveTo(obtenerCarpetaRaiz_());
-    props.setProperty('HOJA_ID', ss.getId());
-  }
+  const carpeta = obtenerCarpetaRaiz_();
+  const nombre = p.getProperty('NOMBRE_HOJA') || CONFIG.NOMBRE_HOJA;
+  const ss = buscarLibroEnCarpeta_(carpeta, nombre) || crearLibro_(carpeta, nombre);
+  p.setProperty('HOJA_ID', ss.getId());
+  return ss;
+}
 
+/** Devuelve la pestaña "Gastos" (la crea o actualiza si hace falta). */
+function obtenerHoja_() {
+  const ss = obtenerLibro_();
   let hoja = ss.getSheetByName(CONFIG.NOMBRE_PESTANA);
   if (!hoja) {
-    hoja = ss.getSheets()[0];
-    if (hoja.getLastRow() > 0) hoja = ss.insertSheet();
-    hoja.setName(CONFIG.NOMBRE_PESTANA);
-    hoja.getRange(1, 1, 1, 4)
-      .setValues([['Fecha', 'Hora', 'Comercio', 'Importe']])
-      .setFontWeight('bold')
-      .setBackground('#e8f0fe');
-    hoja.setFrozenRows(1);
-    hoja.getRange('A2:A').setNumberFormat('dd/mm/yyyy');
-    hoja.getRange('B2:B').setNumberFormat('@');
-    hoja.getRange('D2:D').setNumberFormat('#,##0.00 [$€-C0A]');
-    hoja.setColumnWidth(1, 100);
-    hoja.setColumnWidth(2, 70);
-    hoja.setColumnWidth(3, 260);
-    hoja.setColumnWidth(4, 100);
+    const primera = ss.getSheets()[0];
+    if (primera.getLastRow() === 0 && primera.getName() !== CONFIG.NOMBRE_RESUMEN) {
+      hoja = primera.setName(CONFIG.NOMBRE_PESTANA);
+    } else {
+      hoja = ss.insertSheet(CONFIG.NOMBRE_PESTANA, 0);
+    }
+    formatearHojaGastos_(hoja);
+  } else if (hoja.getLastColumn() === 4 &&
+      String(hoja.getRange(1, 3).getValue()) === 'Comercio' &&
+      String(hoja.getRange(1, 4).getValue()) === 'Importe') {
+    // Hoja de la versión anterior (sin Categoría ni Proyecto): se añaden las columnas.
+    hoja.insertColumnsAfter(COL.COMERCIO, 2);
+    formatearHojaGastos_(hoja);
   }
+  if (!ss.getSheetByName(CONFIG.NOMBRE_RESUMEN)) crearHojaResumen_(ss);
   return hoja;
+}
+
+function formatearHojaGastos_(hoja) {
+  hoja.getRange(1, 1, 1, NCOLS)
+    .setValues([CABECERAS])
+    .setFontWeight('bold')
+    .setBackground('#e8f0fe');
+  hoja.setFrozenRows(1);
+  hoja.getRange('A2:A').setNumberFormat('dd/mm/yyyy');
+  hoja.getRange('B2:B').setNumberFormat('@');
+  hoja.getRange('C2:E').setNumberFormat('@');
+  hoja.getRange('F2:F').setNumberFormat('#,##0.00 [$€-C0A]');
+  [100, 70, 240, 150, 160, 100].forEach(function (ancho, i) { hoja.setColumnWidth(i + 1, ancho); });
+  aplicarValidacionCategorias_(hoja);
+}
+
+function aplicarValidacionCategorias_(hoja) {
+  const regla = SpreadsheetApp.newDataValidation()
+    .requireValueInList(obtenerCategorias_(), true)
+    .setAllowInvalid(true)
+    .build();
+  hoja.getRange(2, COL.CATEGORIA, Math.max(1, hoja.getMaxRows() - 1), 1).setDataValidation(regla);
+}
+
+/**
+ * Pestaña "Resumen": eliges Desde / Hasta / Proyecto y muestra el total,
+ * el número de tickets y el desglose por categoría y por proyecto.
+ */
+function crearHojaResumen_(ss) {
+  const r = ss.insertSheet(CONFIG.NOMBRE_RESUMEN);
+  const g = "'" + CONFIG.NOMBRE_PESTANA + "'!";
+  const hoy = new Date();
+
+  r.getRange('A1').setValue('Resumen de gastos').setFontSize(14).setFontWeight('bold');
+  r.getRange('A3:A5').setValues([['Desde'], ['Hasta'], ['Proyecto']]).setFontWeight('bold');
+  r.getRange('B3:B4').setValues([[new Date(hoy.getFullYear(), hoy.getMonth(), 1)],
+    [new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate())]]).setNumberFormat('dd/mm/yyyy');
+  r.getRange('B3:B5').setBackground('#fef7e0');
+  r.getRange('C3').setValue('← cambia las fechas');
+  r.getRange('C5').setValue('← vacío = todos los proyectos');
+  r.getRange('C3:C5').setFontColor('#80868b');
+  r.getRange('B5').setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInRange(ss.getSheetByName(CONFIG.NOMBRE_PESTANA).getRange('E2:E'), true)
+    .setAllowInvalid(true).build());
+
+  const filtro = g + 'F2:F, ' + g + 'A2:A>=B3, ' + g + 'A2:A<=B4, (B5="")+(' + g + 'E2:E=B5)';
+  r.getRange('A7:A8').setValues([['Total'], ['Nº de tickets']]).setFontWeight('bold');
+  r.getRange('B7').setFormula('=IFERROR(SUM(FILTER(' + filtro + ')), 0)')
+    .setNumberFormat('#,##0.00 [$€-C0A]').setFontWeight('bold').setFontSize(12);
+  r.getRange('B8').setFormula('=IFERROR(ROWS(FILTER(' + filtro + ')), 0)');
+
+  const isoFecha = function (celda) {
+    return 'TEXT(YEAR(' + celda + '),"0000")&"-"&TEXT(MONTH(' + celda + '),"00")&"-"&TEXT(DAY(' + celda + '),"00")';
+  };
+  const donde = '" where A >= date \'"&' + isoFecha('B3') + '&"\' and A <= date \'"&' + isoFecha('B4') +
+    '&"\' and F is not null"&IF(B5="", "", " and E = \'"&B5&"\'")';
+  const consulta = function (col, titulo) {
+    return '=IFERROR(QUERY(' + g + 'A2:F, "select ' + col + ', sum(F)"&' + donde +
+      '&" group by ' + col + ' order by sum(F) desc label ' + col + ' \'' + titulo +
+      '\', sum(F) \'Total\'", 0), "Sin gastos en el periodo")';
+  };
+  r.getRange('A10').setValue('Por categoría').setFontWeight('bold');
+  r.getRange('A11').setFormula(consulta('D', 'Categoría'));
+  r.getRange('D10').setValue('Por proyecto').setFontWeight('bold');
+  r.getRange('D11').setFormula(consulta('E', 'Proyecto'));
+  r.getRange('B12:B200').setNumberFormat('#,##0.00 [$€-C0A]');
+  r.getRange('E12:E200').setNumberFormat('#,##0.00 [$€-C0A]');
+  r.setColumnWidth(1, 160);
+  r.setColumnWidth(2, 120);
+  r.setColumnWidth(3, 40);
+  r.setColumnWidth(4, 160);
+  r.setColumnWidth(5, 120);
 }
 
 /** Crea un PDF con la foto del ticket y sus datos en la cabecera. */
@@ -257,7 +590,7 @@ function crearPdf_(imagen, titulo, lineasInfo) {
     const ancho = img.getWidth();
     const alto = img.getHeight();
     const anchoMax = cuerpo.getPageWidth() - 2 * margen;
-    const altoMax = cuerpo.getPageHeight() - 2 * margen - 110; // espacio para la cabecera
+    const altoMax = cuerpo.getPageHeight() - 2 * margen - 130; // espacio para la cabecera
     const escala = Math.min(1, anchoMax / ancho, altoMax / alto);
     img.setWidth(Math.floor(ancho * escala)).setHeight(Math.floor(alto * escala));
 
@@ -266,6 +599,41 @@ function crearPdf_(imagen, titulo, lineasInfo) {
   } finally {
     DriveApp.getFileById(docId).setTrashed(true);
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Recordar la categoría de cada comercio                              */
+/* ------------------------------------------------------------------ */
+
+function leerRecordados_() {
+  try {
+    const lista = JSON.parse(props_().getProperty('CATEGORIA_POR_COMERCIO') || '[]');
+    const mapa = {};
+    lista.forEach(function (par) { mapa[par[0]] = par[1]; });
+    return mapa;
+  } catch (e) {
+    return {};
+  }
+}
+
+function recordarCategoria_(comercio, categoria) {
+  const clave = normalizar_(comercio);
+  if (!clave) return;
+  let lista;
+  try { lista = JSON.parse(props_().getProperty('CATEGORIA_POR_COMERCIO') || '[]'); } catch (e) { lista = []; }
+  lista = lista.filter(function (par) { return par[0] !== clave; });
+  lista.push([clave, categoria]);
+  if (lista.length > MAX_RECORDADOS) lista = lista.slice(-MAX_RECORDADOS);
+  props_().setProperty('CATEGORIA_POR_COMERCIO', JSON.stringify(lista));
+}
+
+function fechaDesdeIso_(s) {
+  const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+}
+
+function redondear_(n) {
+  return Math.round(n * 100) / 100;
 }
 
 /* ------------------------------------------------------------------ */
@@ -395,7 +763,13 @@ function pad2_(n) {
   return (n < 10 ? '0' : '') + n;
 }
 
+/** "Mercadona, S.A." -> "mercadona s a" (para recordar la categoría) */
+function normalizar_(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9ñ]+/g, ' ').trim();
+}
+
 // Permite probar el parser con Node (no afecta a Apps Script).
 if (typeof module !== 'undefined') {
-  module.exports = { parsearTextoTicket_, aNumero_, formatearNombre_ };
+  module.exports = { parsearTextoTicket_, aNumero_, formatearNombre_, normalizar_, obtenerTotales };
 }
