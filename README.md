@@ -61,4 +61,4 @@ Después, sigue desde el paso 6.
 
 - Haz la foto con buena luz y con el ticket recto y entero: el OCR acierta mucho más.
 - Revisa siempre el importe antes de guardar. La app busca la línea "TOTAL", pero algunos tickets son raros.
-- En la hoja puedes poner `=SUMA(D:D)` en otra celda para ver el total, o usar filtros por fechas.
+- Para totales por periodo o proyecto, usa la pestaña **Totales** de la app o la pestaña **Resumen** de la hoja.
