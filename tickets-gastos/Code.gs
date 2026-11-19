@@ -51,6 +51,7 @@ function doGet() {
 function configurar() {
   const carpeta = obtenerCarpetaRaiz_();
   const hoja = obtenerHoja_();
+  revisarResumen_(hoja.getParent());
   console.log('Carpeta: ' + carpeta.getUrl());
   console.log('Hoja de cálculo: ' + hoja.getParent().getUrl());
 }
@@ -59,6 +60,7 @@ function configurar() {
 function obtenerResumen() {
   const carpeta = obtenerCarpetaRaiz_();
   const hoja = obtenerHoja_();
+  try { revisarResumen_(hoja.getParent()); } catch (e) { console.warn('Resumen: ' + e); }
   const tz = Session.getScriptTimeZone();
   const ultimaFila = hoja.getLastRow();
   const ultimos = [];
@@ -171,11 +173,18 @@ function guardarTicket(datos) {
   const mes = Number(mFecha[2]);
   const dia = Number(mFecha[3]);
 
-  // Carpetas: <carpeta elegida> / 2026 / 11 - Noviembre / Fotos originales
+  // Carpetas:
+  //   con proyecto: <carpeta elegida> / <Proyecto> / Fotos originales
+  //   sin proyecto: <carpeta elegida> / Sin proyecto / 2026 / 11 - Noviembre / Fotos originales
   const raiz = obtenerCarpetaRaiz_();
-  const carpetaAnio = obtenerSubcarpeta_(raiz, anio);
-  const carpetaMes = obtenerSubcarpeta_(carpetaAnio, pad2_(mes) + ' - ' + MESES[mes - 1]);
-  const carpetaFotos = obtenerSubcarpeta_(carpetaMes, CONFIG.SUBCARPETA_FOTOS);
+  let destino;
+  if (proyecto) {
+    destino = obtenerSubcarpeta_(raiz, limpiarNombre_(proyecto));
+  } else {
+    const sinProyecto = obtenerSubcarpeta_(raiz, 'Sin proyecto');
+    const carpetaAnio = obtenerSubcarpeta_(sinProyecto, anio);
+    destino = obtenerSubcarpeta_(carpetaAnio, pad2_(mes) + ' - ' + MESES[mes - 1]);
+  }
 
   const importeTexto = importe.toFixed(2).replace('.', ',') + ' €';
   const nombreBase = fecha + ' ' + hora.replace(':', 'h') + ' - ' +
@@ -186,20 +195,27 @@ function guardarTicket(datos) {
   const imagen = Utilities.newBlob(
     Utilities.base64Decode(datos.imagenBase64), mime, nombreBase + extension);
 
-  const foto = carpetaFotos.createFile(imagen);
   const info = [
     'Fecha: ' + pad2_(dia) + '/' + pad2_(mes) + '/' + anio + '   Hora: ' + hora,
     'Comercio: ' + comercio,
     'Categoría: ' + categoria + (proyecto ? '   Proyecto: ' + proyecto : ''),
     'Importe: ' + importeTexto,
   ];
-  const pdf = carpetaMes.createFile(crearPdf_(imagen, nombreBase, info));
-  pdf.setDescription('Ticket de gasto. Foto original: ' + foto.getUrl());
 
-  // Fila en la hoja de cálculo (con bloqueo por si se guardan dos a la vez).
+  // Primero se prepara el PDF; si algo falla después, se borra lo creado
+  // para no dejar archivos sueltos.
+  const blobPdf = crearPdf_(imagen, nombreBase, info);
+  const creados = [];
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
+    const pdf = destino.createFile(blobPdf);
+    creados.push(pdf);
+    const foto = obtenerSubcarpeta_(destino, CONFIG.SUBCARPETA_FOTOS).createFile(imagen);
+    creados.push(foto);
+    pdf.setDescription('Ticket de gasto. Foto original: ' + foto.getUrl());
+
+    // Fila en la hoja de cálculo
     const hoja = obtenerHoja_();
     const fila = hoja.getLastRow() + 1;
     hoja.getRange(fila, 1, 1, NCOLS).setValues([[
@@ -210,11 +226,13 @@ function guardarTicket(datos) {
 
     recordarCategoria_(comercio, categoria);
     props_().setProperty('ULTIMO_PROYECTO', proyecto);
+    return { pdfUrl: pdf.getUrl(), nombre: pdf.getName() };
+  } catch (e) {
+    creados.forEach(function (f) { try { f.setTrashed(true); } catch (x) { /* ignorar */ } });
+    throw e;
   } finally {
     lock.releaseLock();
   }
-
-  return { pdfUrl: pdf.getUrl(), nombre: pdf.getName() };
 }
 
 /**
@@ -542,11 +560,15 @@ function crearHojaResumen_(ss) {
     .requireValueInRange(ss.getSheetByName(CONFIG.NOMBRE_PESTANA).getRange('E2:E'), true)
     .setAllowInvalid(true).build());
 
-  const filtro = g + 'F2:F, ' + g + 'A2:A>=B3, ' + g + 'A2:A<=B4, (B5="")+(' + g + 'E2:E=B5)';
+  const fechas = g + 'A2:A, ">="&B3, ' + g + 'A2:A, "<="&B4';
+  const deProyecto = ', ' + g + 'E2:E, B5';
+  const formulas = {
+    B7: '=IF(B5="", SUMIFS(' + g + 'F2:F, ' + fechas + '), SUMIFS(' + g + 'F2:F, ' + fechas + deProyecto + '))',
+    B8: '=IF(B5="", COUNTIFS(' + fechas + ', ' + g + 'F2:F, "<>"), COUNTIFS(' + fechas + ', ' + g + 'F2:F, "<>"' + deProyecto + '))',
+  };
   r.getRange('A7:A8').setValues([['Total'], ['Nº de tickets']]).setFontWeight('bold');
-  r.getRange('B7').setFormula('=IFERROR(SUM(FILTER(' + filtro + ')), 0)')
-    .setNumberFormat('#,##0.00 [$€-C0A]').setFontWeight('bold').setFontSize(12);
-  r.getRange('B8').setFormula('=IFERROR(ROWS(FILTER(' + filtro + ')), 0)');
+  r.getRange('B7').setNumberFormat('#,##0.00 [$€-C0A]').setFontWeight('bold').setFontSize(12);
+  r.getRange('B8').setNumberFormat('0');
 
   const isoFecha = function (celda) {
     return 'TEXT(YEAR(' + celda + '),"0000")&"-"&TEXT(MONTH(' + celda + '),"00")&"-"&TEXT(DAY(' + celda + '),"00")';
@@ -558,10 +580,11 @@ function crearHojaResumen_(ss) {
       '&" group by ' + col + ' order by sum(F) desc label ' + col + ' \'' + titulo +
       '\', sum(F) \'Total\'", 0), "Sin gastos en el periodo")';
   };
+  formulas.A11 = consulta('D', 'Categoría');
+  formulas.D11 = consulta('E', 'Proyecto');
   r.getRange('A10').setValue('Por categoría').setFontWeight('bold');
-  r.getRange('A11').setFormula(consulta('D', 'Categoría'));
   r.getRange('D10').setValue('Por proyecto').setFontWeight('bold');
-  r.getRange('D11').setFormula(consulta('E', 'Proyecto'));
+  ponerFormulas_(r, formulas);
   r.getRange('B12:B200').setNumberFormat('#,##0.00 [$€-C0A]');
   r.getRange('E12:E200').setNumberFormat('#,##0.00 [$€-C0A]');
   r.setColumnWidth(1, 160);
@@ -569,6 +592,49 @@ function crearHojaResumen_(ss) {
   r.setColumnWidth(3, 40);
   r.setColumnWidth(4, 160);
   r.setColumnWidth(5, 120);
+}
+
+/**
+ * Escribe las fórmulas. Si alguna da error de análisis (hojas configuradas
+ * para usar ";" como separador), se vuelve a escribir con ";".
+ */
+function ponerFormulas_(hoja, formulas) {
+  Object.keys(formulas).forEach(function (celda) {
+    hoja.getRange(celda).setFormula(formulas[celda]);
+  });
+  SpreadsheetApp.flush();
+  Object.keys(formulas).forEach(function (celda) {
+    const rango = hoja.getRange(celda);
+    if (/^#ERROR/.test(rango.getDisplayValue())) {
+      rango.setFormula(aPuntoYComa_(formulas[celda]));
+    }
+  });
+}
+
+/** Cambia las comas separadoras de argumentos por ";" (sin tocar los textos). */
+function aPuntoYComa_(formula) {
+  let salida = '';
+  let enTexto = false;
+  for (let i = 0; i < formula.length; i++) {
+    const c = formula[i];
+    if (c === '"') enTexto = !enTexto;
+    salida += (c === ',' && !enTexto) ? ';' : c;
+  }
+  return salida;
+}
+
+/** Si la pestaña Resumen muestra errores (versión anterior), se rehace. */
+function revisarResumen_(ss) {
+  const r = ss.getSheetByName(CONFIG.NOMBRE_RESUMEN);
+  if (!r) return;
+  const valores = ['B7', 'B8', 'A11', 'D11'].map(function (c) { return r.getRange(c).getDisplayValue(); });
+  if (valores.some(function (v) { return /^#ERROR/.test(v); })) {
+    const pos = r.getIndex();
+    ss.deleteSheet(r);
+    crearHojaResumen_(ss);
+    ss.setActiveSheet(ss.getSheetByName(CONFIG.NOMBRE_RESUMEN));
+    ss.moveActiveSheet(pos);
+  }
 }
 
 /** Crea un PDF con la foto del ticket y sus datos en la cabecera. */

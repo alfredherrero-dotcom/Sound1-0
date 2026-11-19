@@ -6,9 +6,10 @@ Una app web para el móvil que guarda los tickets de gastos en tu Google Drive:
 2. La app **lee el ticket** con el OCR de Google y rellena fecha, hora, comercio e importe. Tú los revisas (los que no ha podido leer salen en amarillo) y eliges **categoría** y, si quieres, **proyecto**.
    - La app recuerda la categoría de cada comercio y el último proyecto usado.
 3. Al pulsar **Guardar**:
-   - se crea un **PDF** con la foto y los datos, listo para presentar, en
-     `<tu carpeta> / 2026 / 11 - Noviembre /`
-   - la foto original se guarda en la subcarpeta `Fotos originales`
+   - se crea un **PDF** con la foto y los datos, listo para presentar:
+     - con proyecto, en `<tu carpeta> / <Proyecto> /`
+     - sin proyecto, en `<tu carpeta> / Sin proyecto / 2026 / 11 - Noviembre /`
+   - la foto original se guarda al lado, en la subcarpeta `Fotos originales`
    - se añade una fila a la hoja de cálculo: `Fecha | Hora | Comercio | Categoría | Proyecto | Importe`. El nombre del comercio enlaza al PDF.
 
 ### 📊 Totales
@@ -16,7 +17,7 @@ Una app web para el móvil que guarda los tickets de gastos en tu Google Drive:
 - En la hoja de cálculo, pestaña **Resumen**: cambias *Desde*, *Hasta* y *Proyecto* (las celdas amarillas) y se recalculan el total y los desgloses.
 
 ### ⚙️ Ajustes (desde la app)
-- **Carpeta de Drive**: navega por tus carpetas, crea una nueva o pega el enlace de una carpeta. Los tickets nuevos se guardan allí; los anteriores se quedan donde estaban.
+- **Carpeta de Drive**: navega por tus carpetas, crea una nueva o pega el enlace de una carpeta. Dentro, cada proyecto tiene su subcarpeta. Los tickets nuevos se guardan allí; los anteriores se quedan donde estaban.
 - **Nombre de la hoja de cálculo**: con la casilla *Seguir usando la hoja actual* marcada, se renombra la hoja y se mueve a la carpeta elegida. Desmarcada, se empieza otra hoja: se usa la que ya tenga ese nombre en la carpeta o se crea una nueva. Sirve, por ejemplo, para tener una hoja por año.
 - **Categorías**: una por línea.
 
