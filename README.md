@@ -20,6 +20,11 @@ Una app web para el móvil que guarda los tickets de gastos en tu Google Drive:
   - se crea la pestaña **Informe** en su hoja (resumen, desglose por categoría y detalle con enlace a cada ticket),
   - se guarda un **PDF del informe** en su carpeta, listo para presentar y cobrar,
   - el proyecto desaparece del desplegable.
+- **Firma del informe** (⚙️ Ajustes → *Tus datos para el informe*):
+  - escribe tu nombre y apellidos y tu DNI/NIE (se comprueba la letra),
+  - firma con el dedo en el recuadro o carga una foto de tu firma (el fondo blanco se vuelve transparente).
+
+  Al cerrar un proyecto, el informe PDF y la pestaña *Informe* incluyen un bloque «Presentado por» con nombre, DNI, fecha y firma. En el diálogo de cierre puedes desmarcar «Firmar el informe»; si no hay datos, salen los espacios en blanco para firmar a mano.
 - **Histórico**: lista los proyectos cerrados con su total, el informe y la hoja. Con **Reabrir** vuelve al desplegable; si lo cierras otra vez, el informe se rehace.
 - Además, todos los tickets se apuntan en la **hoja general** (`Gastos - Tickets`), que es la que usan los Totales.
 

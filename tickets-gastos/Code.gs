@@ -112,6 +112,7 @@ function obtenerResumen() {
     proyectos: Object.keys(proyectos).sort(function (a, b) { return a.localeCompare(b, 'es'); }),
     ultimoProyecto: props_().getProperty('ULTIMO_PROYECTO') || '',
     categoriaPorComercio: leerRecordados_(),
+    firmante: firmanteParaPantalla_(false),
   };
 }
 
@@ -394,7 +395,8 @@ function crearProyecto(nombre) {
  * Cierra un proyecto: calcula el total, crea la pestaña "Informe" en su hoja
  * y un PDF del informe en su carpeta, y lo pasa al histórico.
  */
-function cerrarProyecto(id) {
+function cerrarProyecto(id, opciones) {
+  const firmar = !opciones || opciones.firmar !== false;
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -405,13 +407,14 @@ function cerrarProyecto(id) {
     const datos = leerTicketsProyecto_(ss);
     const ahora = new Date();
 
-    crearPestanaInforme_(ss, p, datos, ahora);
+    const firmante = firmar ? leerFirmante_() : { nombre: '', dni: '', blob: null };
+    crearPestanaInforme_(ss, p, datos, ahora, firmante);
 
     // Si se había cerrado antes (y se reabrió), se sustituye el informe anterior.
     if (p.informeId) {
       try { DriveApp.getFileById(p.informeId).setTrashed(true); } catch (e) { /* ya no existe */ }
     }
-    const pdf = carpetaProyecto_(p).createFile(crearInformePdf_(p, datos, ahora));
+    const pdf = carpetaProyecto_(p).createFile(crearInformePdf_(p, datos, ahora, firmante));
 
     p.estado = 'cerrado';
     p.cerrado = ahora.toISOString();
@@ -540,7 +543,7 @@ function leerTicketsProyecto_(ss) {
 }
 
 /** Pestaña "Informe" con valores fijos (sin fórmulas): resumen + detalle. */
-function crearPestanaInforme_(ss, p, d, ahora) {
+function crearPestanaInforme_(ss, p, d, ahora, firmante) {
   const anterior = ss.getSheetByName(NOMBRE_INFORME);
   if (anterior) ss.deleteSheet(anterior);
   const h = ss.insertSheet(NOMBRE_INFORME, 0);
@@ -592,12 +595,33 @@ function crearPestanaInforme_(ss, p, d, ahora) {
   h.getRange(fila, 4, 1, 2).setValues([['TOTAL', d.total]]).setFontWeight('bold').setBackground('#e8eaf6');
   h.getRange(fila, 5).setNumberFormat(FORMATO_EUROS);
 
+  // Presentado por (nombre, DNI y firma)
+  fila += 2;
+  h.getRange(fila, 1).setValue('Presentado por').setFontWeight('bold').setFontSize(12);
+  h.getRange(fila + 1, 1, 3, 2).setValues([
+    ['Nombre y apellidos', firmante.nombre || ''],
+    ['DNI', firmante.dni || ''],
+    ['Fecha', d.fmt(ahora)],
+  ]);
+  h.getRange(fila + 1, 1, 3, 1).setFontWeight('bold');
+  h.getRange(fila + 4, 1).setValue('Firma').setFontWeight('bold');
+  if (firmante.blob) {
+    try {
+      const img = h.insertImage(firmante.blob, 2, fila + 4);
+      const escala = Math.min(1, 220 / img.getWidth(), 90 / img.getHeight());
+      img.setWidth(Math.round(img.getWidth() * escala)).setHeight(Math.round(img.getHeight() * escala));
+      h.setRowHeight(fila + 4, 95);
+    } catch (e) {
+      console.warn('No se pudo insertar la firma en la hoja: ' + e);
+    }
+  }
+
   [110, 110, 240, 160, 110].forEach(function (ancho, i) { h.setColumnWidth(i + 1, ancho); });
   ss.setActiveSheet(h);
 }
 
 /** PDF del informe para presentar (resumen, desglose y detalle con enlaces). */
-function crearInformePdf_(p, d, ahora) {
+function crearInformePdf_(p, d, ahora, firmante) {
   const titulo = 'Informe - ' + limpiarNombre_(p.nombre) + ' - ' +
     Utilities.formatDate(ahora, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   const doc = DocumentApp.create(titulo);
@@ -645,7 +669,31 @@ function crearInformePdf_(p, d, ahora) {
       cuerpo.appendParagraph('Este proyecto no tiene tickets.');
     }
 
-    const pie = cuerpo.appendParagraph('Los comercios enlazan al PDF de cada ticket.   Firma: ____________________');
+    // Presentado por: nombre, DNI, fecha y firma
+    const presentado = cuerpo.appendParagraph('Presentado por');
+    presentado.setHeading(DocumentApp.ParagraphHeading.HEADING3);
+    presentado.setSpacingBefore(22);
+    [
+      ['Nombre y apellidos: ', firmante.nombre || '________________________________________'],
+      ['DNI: ', firmante.dni || '____________________'],
+      ['Fecha: ', d.fmt(ahora)],
+    ].forEach(function (par) {
+      const linea = cuerpo.appendParagraph(par[0] + par[1]);
+      linea.editAsText().setBold(0, par[0].length - 1, true);
+    });
+    const etiquetaFirma = cuerpo.appendParagraph('Firma:');
+    etiquetaFirma.setSpacingBefore(8);
+    etiquetaFirma.editAsText().setBold(true);
+    if (firmante.blob) {
+      const img = cuerpo.appendImage(firmante.blob);
+      const escala = Math.min(1, 200 / img.getWidth(), 80 / img.getHeight());
+      img.setWidth(Math.round(img.getWidth() * escala)).setHeight(Math.round(img.getHeight() * escala));
+    } else {
+      const hueco = cuerpo.appendParagraph('\n\n________________________________');
+      hueco.editAsText().setForegroundColor('#9aa0a6');
+    }
+
+    const pie = cuerpo.appendParagraph('Los comercios del detalle enlazan al PDF de cada ticket.');
     pie.setSpacingBefore(24);
     pie.editAsText().setFontSize(9).setForegroundColor('#5f6368');
 
@@ -676,6 +724,92 @@ function estilarTabla_(tabla, anchos, columnasDerecha) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Firmante: nombre, DNI y firma para los informes                     */
+/* ------------------------------------------------------------------ */
+
+const NOMBRE_ARCHIVO_FIRMA = 'Firma para informes (no borrar).png';
+
+function leerFirmante_() {
+  const p = props_();
+  let blob = null;
+  const id = p.getProperty('FIRMA_ID');
+  if (id) {
+    try {
+      const f = DriveApp.getFileById(id);
+      if (!f.isTrashed()) blob = f.getBlob();
+    } catch (e) { /* firma borrada */ }
+  }
+  return {
+    nombre: p.getProperty('FIRMANTE_NOMBRE') || '',
+    dni: p.getProperty('FIRMANTE_DNI') || '',
+    blob: blob,
+  };
+}
+
+/** Para la app. Con conImagen, incluye la firma como data URL para verla. */
+function firmanteParaPantalla_(conImagen) {
+  const f = conImagen ? leerFirmante_() : null;
+  const p = props_();
+  return {
+    nombre: p.getProperty('FIRMANTE_NOMBRE') || '',
+    dni: p.getProperty('FIRMANTE_DNI') || '',
+    tieneFirma: conImagen ? !!f.blob : !!p.getProperty('FIRMA_ID'),
+    firma: conImagen && f.blob
+      ? 'data:' + f.blob.getContentType() + ';base64,' + Utilities.base64Encode(f.blob.getBytes())
+      : null,
+  };
+}
+
+/**
+ * @param {{nombre:string, dni:string, firmaBase64:(string|undefined), borrarFirma:boolean}} f
+ *   firmaBase64: PNG nuevo (sin el prefijo data:). Si no viene, se conserva la firma actual.
+ */
+function guardarFirmante_(f) {
+  const p = props_();
+  const nombre = String(f.nombre || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  let dni = String(f.dni || '').trim();
+  if (dni) {
+    const valido = dniValido_(dni);
+    if (!valido) throw new Error('El DNI/NIE no es válido. Revisa los números y la letra (ej.: 12345678Z).');
+    dni = valido;
+  }
+  p.setProperty('FIRMANTE_NOMBRE', nombre);
+  p.setProperty('FIRMANTE_DNI', dni);
+
+  const anterior = p.getProperty('FIRMA_ID');
+  const quitarAnterior = function () {
+    if (!anterior) return;
+    try { DriveApp.getFileById(anterior).setTrashed(true); } catch (e) { /* ya no existe */ }
+    p.deleteProperty('FIRMA_ID');
+  };
+  if (f.firmaBase64) {
+    const bytes = Utilities.base64Decode(f.firmaBase64);
+    if (bytes.length > 1024 * 1024) throw new Error('La imagen de la firma es demasiado grande.');
+    const archivo = obtenerCarpetaRaiz_().createFile(
+      Utilities.newBlob(bytes, 'image/png', NOMBRE_ARCHIVO_FIRMA));
+    archivo.setDescription('Firma que se añade a los informes de cierre de proyecto.');
+    quitarAnterior();
+    p.setProperty('FIRMA_ID', archivo.getId());
+  } else if (f.borrarFirma) {
+    quitarAnterior();
+  }
+}
+
+/** Devuelve el DNI/NIE normalizado (12345678Z) si la letra es correcta, o null. */
+function dniValido_(s) {
+  const t = String(s || '').toUpperCase().replace(/[\s.\-]/g, '');
+  const letras = 'TRWAGMYFPDXBNJZSQVHLCKE';
+  let m = t.match(/^(\d{8})([A-Z])$/);
+  if (m) return letras[Number(m[1]) % 23] === m[2] ? t : null;
+  m = t.match(/^([XYZ])(\d{7})([A-Z])$/);
+  if (m) {
+    const num = Number('XYZ'.indexOf(m[1]) + m[2]);
+    return letras[num % 23] === m[3] ? t : null;
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
 /* Ajustes                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -687,6 +821,7 @@ function obtenerConfiguracion() {
     nombreHoja: libro.getName(),
     hojaUrl: libro.getUrl(),
     categorias: obtenerCategorias_(),
+    firmante: firmanteParaPantalla_(true),
   };
 }
 
@@ -739,6 +874,7 @@ function crearCarpeta(idPadre, nombre) {
  */
 function guardarConfiguracion(cfg) {
   const p = props_();
+  if (cfg.firmante) guardarFirmante_(cfg.firmante);
   const nombre = String(cfg.nombreHoja || '').trim();
   if (!nombre) throw new Error('Escribe el nombre de la hoja de cálculo.');
 
@@ -1234,5 +1370,5 @@ function normalizar_(s) {
 
 // Permite probar el parser con Node (no afecta a Apps Script).
 if (typeof module !== 'undefined') {
-  module.exports = { parsearTextoTicket_, aNumero_, formatearNombre_, normalizar_, obtenerTotales };
+  module.exports = { parsearTextoTicket_, aNumero_, formatearNombre_, normalizar_, obtenerTotales, dniValido_ };
 }
