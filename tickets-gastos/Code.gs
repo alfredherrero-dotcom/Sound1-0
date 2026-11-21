@@ -65,13 +65,23 @@ function obtenerResumen() {
   const ultimaFila = hoja.getLastRow();
   const ultimos = [];
   const proyectos = {};
+  const mes = { total: 0, tickets: 0 };
 
   if (ultimaFila > 1) {
     const n = ultimaFila - 1;
-    hoja.getRange(2, COL.PROYECTO, n, 1).getValues().forEach(function (f) {
-      const p = String(f[0]).trim();
+    const hoy = new Date();
+    hoja.getRange(2, 1, n, NCOLS).getValues().forEach(function (v) {
+      const p = String(v[COL.PROYECTO - 1]).trim();
       if (p) proyectos[p] = true;
+      const f = v[COL.FECHA - 1];
+      const imp = Number(v[COL.IMPORTE - 1]);
+      if (f instanceof Date && !isNaN(imp) &&
+          f.getFullYear() === hoy.getFullYear() && f.getMonth() === hoy.getMonth()) {
+        mes.total += imp;
+        mes.tickets++;
+      }
     });
+    mes.total = redondear_(mes.total);
 
     const desde = Math.max(2, ultimaFila - 4);
     const k = ultimaFila - desde + 1;
@@ -96,6 +106,7 @@ function obtenerResumen() {
     hojaUrl: hoja.getParent().getUrl(),
     nombreHoja: hoja.getParent().getName(),
     ultimos: ultimos,
+    mes: mes,
     categorias: obtenerCategorias_(),
     proyectos: Object.keys(proyectos).sort(function (a, b) { return a.localeCompare(b, 'es'); }),
     ultimoProyecto: props_().getProperty('ULTIMO_PROYECTO') || '',
