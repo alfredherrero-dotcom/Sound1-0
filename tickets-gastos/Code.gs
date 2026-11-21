@@ -16,7 +16,8 @@
 /** Valores por defecto (se pueden cambiar desde la pantalla de Ajustes). */
 const CONFIG = {
   NOMBRE_CARPETA: 'Tickets de gastos',
-  NOMBRE_HOJA: 'Gastos - Tickets',
+  NOMBRE_HOJA: 'Registro general (no tocar)',   // registro automático con todos los tickets
+  NOMBRE_HOJA_ANTIGUO: 'Gastos - Tickets',
   NOMBRE_PESTANA: 'Gastos',
   NOMBRE_RESUMEN: 'Resumen',
   SUBCARPETA_FOTOS: 'Fotos originales',
@@ -866,17 +867,12 @@ function crearCarpeta(idPadre, nombre) {
 
 /**
  * Guarda los ajustes.
- * @param {{carpetaId:string, nombreHoja:string, renombrar:boolean,
- *          categorias:string[]}} cfg
- *   renombrar = true: se sigue usando la hoja actual (se renombra y se mueve
- *   a la carpeta elegida). false: se usa la hoja con ese nombre que haya en
- *   la carpeta, o se crea una nueva.
+ * @param {{carpetaId:string, categorias:string[], firmante:Object}} cfg
+ *   Si cambia la carpeta, el registro general se mueve con ella.
  */
 function guardarConfiguracion(cfg) {
   const p = props_();
   if (cfg.firmante) guardarFirmante_(cfg.firmante);
-  const nombre = String(cfg.nombreHoja || '').trim();
-  if (!nombre) throw new Error('Escribe el nombre de la hoja de cálculo.');
 
   const vistas = {};
   const categorias = (cfg.categorias || []).map(function (c) { return String(c).trim(); })
@@ -901,26 +897,11 @@ function guardarConfiguracion(cfg) {
   try {
     p.setProperty('CARPETA_ID', carpeta.getId());
     p.setProperty('CATEGORIAS', JSON.stringify(categorias));
-    p.setProperty('NOMBRE_HOJA', nombre);
 
-    let actual = null;
-    const idActual = p.getProperty('HOJA_ID');
-    if (idActual) {
-      try {
-        const f = DriveApp.getFileById(idActual);
-        if (!f.isTrashed()) actual = f;
-      } catch (e) { /* no existe */ }
-    }
-
-    if (cfg.renombrar && actual) {
-      if (actual.getName() !== nombre) actual.setName(nombre);
-      if (!estaEnCarpeta_(actual, carpeta)) actual.moveTo(carpeta);
-    } else {
-      const libro = buscarLibroEnCarpeta_(carpeta, nombre) || crearLibro_(carpeta, nombre);
-      p.setProperty('HOJA_ID', libro.getId());
-    }
-
+    // El registro general acompaña siempre a la carpeta principal.
     const hoja = obtenerHoja_();
+    const registro = DriveApp.getFileById(hoja.getParent().getId());
+    if (!estaEnCarpeta_(registro, carpeta)) registro.moveTo(carpeta);
     aplicarValidacionCategorias_(hoja);
   } finally {
     lock.releaseLock();
@@ -1015,14 +996,30 @@ function obtenerLibro_() {
   const id = p.getProperty('HOJA_ID');
   if (id) {
     try {
-      if (!DriveApp.getFileById(id).isTrashed()) return SpreadsheetApp.openById(id);
+      const archivo = DriveApp.getFileById(id);
+      if (!archivo.isTrashed()) {
+        marcarComoRegistro_(archivo);
+        return SpreadsheetApp.openById(id);
+      }
     } catch (e) { /* se buscará o creará */ }
   }
   const carpeta = obtenerCarpetaRaiz_();
-  const nombre = p.getProperty('NOMBRE_HOJA') || CONFIG.NOMBRE_HOJA;
-  const ss = buscarLibroEnCarpeta_(carpeta, nombre) || crearLibro_(carpeta, nombre);
+  const ss = buscarLibroEnCarpeta_(carpeta, CONFIG.NOMBRE_HOJA) ||
+    buscarLibroEnCarpeta_(carpeta, CONFIG.NOMBRE_HOJA_ANTIGUO) ||
+    crearLibro_(carpeta, CONFIG.NOMBRE_HOJA);
   p.setProperty('HOJA_ID', ss.getId());
+  marcarComoRegistro_(DriveApp.getFileById(ss.getId()));
   return ss;
+}
+
+/** La hoja general pasa a ser un registro automático: nombre fijo y descripción. */
+function marcarComoRegistro_(archivo) {
+  const p = props_();
+  if (p.getProperty('REGISTRO_MARCADO') === archivo.getId()) return;
+  if (archivo.getName() !== CONFIG.NOMBRE_HOJA) archivo.setName(CONFIG.NOMBRE_HOJA);
+  archivo.setDescription('Registro automático de todos los tickets de todos los proyectos. ' +
+    'Lo usa la app para los Totales y como copia de seguridad. No hace falta tocarlo.');
+  p.setProperty('REGISTRO_MARCADO', archivo.getId());
 }
 
 /** Devuelve la pestaña "Gastos" (la crea o actualiza si hace falta). */

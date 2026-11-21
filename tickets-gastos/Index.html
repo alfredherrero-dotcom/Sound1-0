@@ -346,8 +346,8 @@
         <h1 id="titulo-vista" tabindex="-1">Nuevo ticket</h1>
       </div>
     </div>
-    <a id="cab-hoja" class="boton-icono" target="_blank" rel="noopener" aria-label="Abrir la hoja de cálculo">
-      <svg class="icono" aria-hidden="true"><use href="#i-hoja"/></svg>
+    <a id="cab-carpeta" class="boton-icono" target="_blank" rel="noopener" aria-label="Abrir la carpeta de Drive">
+      <svg class="icono" aria-hidden="true"><use href="#i-carpeta"/></svg>
     </a>
   </header>
 
@@ -481,11 +481,8 @@
       <ul id="ultimos" class="lista"></ul>
       <p id="sin-tickets" class="vacio oculto">Todavía no hay tickets guardados.</p>
       <div class="enlaces">
-        <a id="enlace-hoja" class="boton peque" target="_blank" rel="noopener">
-          <svg class="icono" aria-hidden="true"><use href="#i-hoja"/></svg> Hoja
-        </a>
         <a id="enlace-carpeta" class="boton peque" target="_blank" rel="noopener">
-          <svg class="icono" aria-hidden="true"><use href="#i-carpeta"/></svg> Carpeta
+          <svg class="icono" aria-hidden="true"><use href="#i-carpeta"/></svg> Abrir la carpeta en Drive
         </a>
       </div>
     </section>
@@ -521,8 +518,6 @@
       <p class="etiqueta" id="t-num" style="margin:0 0 16px"></p>
       <div id="t-bloque-cat" class="bloque"><h2>Por categoría</h2><div id="t-cat"></div></div>
       <div id="t-bloque-pro" class="bloque"><h2>Por proyecto</h2><div id="t-pro"></div></div>
-      <p class="nota">También lo tienes en la pestaña <b>Resumen</b> de la
-        <a id="t-enlace-hoja" target="_blank" rel="noopener">hoja de cálculo</a>.</p>
     </section>
   </div>
 
@@ -575,7 +570,7 @@
 
       <section class="tarjeta" aria-labelledby="t-carpeta">
         <h2 id="t-carpeta">Carpeta de Drive</h2>
-        <p class="nota" style="margin:0 0 12px">Aquí se crea una carpeta por proyecto, con su hoja de cálculo, los PDF de los tickets y el informe de cierre.</p>
+        <p class="nota" style="margin:0 0 12px">Aquí se crea una carpeta por proyecto, con su hoja de cálculo, los PDF de los tickets y el informe de cierre. También se guarda el «Registro general», que la app rellena sola.</p>
         <p class="ruta"><svg class="icono" aria-hidden="true"><use href="#i-carpeta"/></svg><span id="a-ruta"></span></p>
         <button id="a-cambiar" class="boton" type="button">Cambiar carpeta</button>
 
@@ -596,20 +591,6 @@
         </div>
       </section>
 
-      <section class="tarjeta" aria-labelledby="t-hoja">
-        <h2 id="t-hoja">Hoja general</h2>
-        <p class="nota" style="margin:0 0 12px">Registro con todos los tickets de todos los proyectos. Se usa para los Totales.</p>
-        <div class="campo" style="margin-top:0">
-          <label for="a-nombre-hoja">Nombre</label>
-          <input id="a-nombre-hoja" class="control" type="text" required maxlength="100" data-error="a-nombre-error">
-          <p id="a-nombre-error" class="error-msg"><svg class="icono" role="img" aria-label="Error"><use href="#i-error"/></svg>Escribe un nombre para la hoja.</p>
-        </div>
-        <label class="check">
-          <input id="a-renombrar" type="checkbox" checked>
-          <span>Seguir usando la hoja actual (se renombra y se mueve a la carpeta elegida).
-            Desmárcalo para empezar otra hoja: se usará la que tenga ese nombre en la carpeta o se creará una nueva.</span>
-        </label>
-      </section>
 
       <section class="tarjeta" aria-labelledby="t-categorias">
         <h2 id="t-categorias">Categorías</h2>
@@ -950,8 +931,7 @@
       rellenarListas();
       ponerProyectos(r.listaProyectos);
       mostrar($('tarjeta-proyectos'), !$('paso-captura').classList.contains('oculto'));
-      ['enlace-hoja', 't-enlace-hoja', 'cab-hoja'].forEach((id) => { $(id).href = r.hojaUrl; });
-      $('enlace-carpeta').href = r.carpetaUrl;
+      ['enlace-carpeta', 'cab-carpeta'].forEach((id) => { $(id).href = r.carpetaUrl; });
 
       if (r.mes) {
         const nombreMes = new Date().toLocaleDateString('es-ES', { month: 'long' });
@@ -1477,9 +1457,7 @@
     ajustes = cfg;
     carpetaElegida = cfg.carpeta;
     ponerRuta(cfg.carpeta.ruta, false);
-    $('a-nombre-hoja').value = cfg.nombreHoja;
     $('a-categorias').value = cfg.categorias.join('\n');
-    $('a-renombrar').checked = true;
     const f = cfg.firmante || {};
     $('a-nombre').value = f.nombre || '';
     $('a-dni').value = f.dni || '';
@@ -1571,8 +1549,6 @@
     try {
       const cfg = await llamar('guardarConfiguracion', {
         carpetaId: carpetaElegida.id,
-        nombreHoja: $('a-nombre-hoja').value.trim(),
-        renombrar: $('a-renombrar').checked,
         categorias: $('a-categorias').value.split('\n'),
         firmante: datosFirmante(),
       });

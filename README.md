@@ -26,7 +26,7 @@ Una app web para el móvil que guarda los tickets de gastos en tu Google Drive:
 
   Al cerrar un proyecto, el informe PDF y la pestaña *Informe* incluyen un bloque «Presentado por» con nombre, DNI, fecha y firma. En el diálogo de cierre puedes desmarcar «Firmar el informe»; si no hay datos, salen los espacios en blanco para firmar a mano.
 - **Histórico**: lista los proyectos cerrados con su total, el informe y la hoja. Con **Reabrir** vuelve al desplegable; si lo cierras otra vez, el informe se rehace.
-- Además, todos los tickets se apuntan en la **hoja general** (`Gastos - Tickets`), que es la que usan los Totales.
+- Además, todos los tickets se apuntan solos en el **Registro general (no tocar)**, en la carpeta principal. No aparece en la app: lo usan los Totales y sirve de copia de seguridad.
 
 ### 📊 Totales
 - En la app, pestaña **Totales**: eliges el periodo (este mes, mes pasado, trimestre, año o fechas a mano) y el proyecto (todos, uno concreto o "sin proyecto"). Ves el total, el número de tickets y el desglose por categoría y por proyecto.
@@ -34,7 +34,6 @@ Una app web para el móvil que guarda los tickets de gastos en tu Google Drive:
 
 ### ⚙️ Ajustes (desde la app)
 - **Carpeta de Drive**: navega por tus carpetas, crea una nueva o pega el enlace de una carpeta. Dentro, cada proyecto tiene su subcarpeta. Los tickets nuevos se guardan allí; los anteriores se quedan donde estaban.
-- **Nombre de la hoja de cálculo**: con la casilla *Seguir usando la hoja actual* marcada, se renombra la hoja y se mueve a la carpeta elegida. Desmarcada, se empieza otra hoja: se usa la que ya tenga ese nombre en la carpeta o se crea una nueva. Sirve, por ejemplo, para tener una hoja por año.
 - **Categorías**: una por línea.
 
 Funciona con Google Apps Script, dentro de tu propia cuenta de Google: no hay servidor externo y no hay que pagar nada. Los tickets solo los ves tú.
