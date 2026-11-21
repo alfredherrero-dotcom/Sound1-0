@@ -244,7 +244,8 @@
     .historico li { flex-wrap: wrap; }
     .historico .nombre { flex: 1 1 0; }
     .historico .enlaces { flex-basis: 100%; margin-top: 4px; display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; }
+      grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .historico .meta, .aviso-revisar { overflow-wrap: anywhere; }
     .historico .enlaces .boton { padding-inline: 8px; }
 
     /* ============ Firma ============ */
@@ -334,6 +335,7 @@
   <symbol id="i-cerrado" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/><path d="M12 15v2"/></symbol>
   <symbol id="i-mas" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-archivo" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/></symbol>
+  <symbol id="i-correo" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></symbol>
   <symbol id="i-pdf" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
 </svg>
 
@@ -669,13 +671,47 @@
       </button>
     </div>
     <div id="dlg-cerrar-hecho" class="dlg-hecho oculto">
-      <a id="dlg-informe" class="boton primario" target="_blank" rel="noopener">
+      <button id="dlg-enviar-informe" class="boton primario" type="button">
+        <svg class="icono" aria-hidden="true"><use href="#i-correo"/></svg> Enviar por correo
+      </button>
+      <a id="dlg-informe" class="boton" target="_blank" rel="noopener">
         <svg class="icono" aria-hidden="true"><use href="#i-pdf"/></svg> Ver el informe PDF
       </a>
       <a id="dlg-hoja" class="boton" target="_blank" rel="noopener">
         <svg class="icono" aria-hidden="true"><use href="#i-hoja"/></svg> Abrir la hoja del proyecto
       </a>
       <button class="boton texto" value="hecho">Hecho</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-enviar" aria-labelledby="dlg-enviar-t">
+  <form id="dlg-enviar-form" method="dialog" class="dlg-cuerpo">
+    <div class="dlg-icono" aria-hidden="true" style="background:var(--tinte);color:var(--marca)"><svg class="icono"><use href="#i-correo"/></svg></div>
+    <h2 id="dlg-enviar-t">Enviar el informe</h2>
+    <p>El PDF va adjunto, con las fotos de todos los tickets: quien lo recibe no necesita ninguna cuenta. Se envía desde tu Gmail.</p>
+    <div class="campo">
+      <label for="env-para">Para</label>
+      <input id="env-para" class="control" type="email" multiple required autocomplete="email"
+             placeholder="nombre@empresa.com" autocapitalize="none" autocorrect="off" spellcheck="false"
+             enterkeyhint="next" autofocus data-error="env-para-error">
+      <p id="env-para-error" class="error-msg"><svg class="icono" role="img" aria-label="Error"><use href="#i-error"/></svg>Escribe un correo válido (si son varios, sepáralos con comas).</p>
+    </div>
+    <div class="campo">
+      <label for="env-asunto">Asunto</label>
+      <input id="env-asunto" class="control" type="text" required maxlength="200" data-error="env-asunto-error">
+      <p id="env-asunto-error" class="error-msg"><svg class="icono" role="img" aria-label="Error"><use href="#i-error"/></svg>Escribe un asunto.</p>
+    </div>
+    <div class="campo">
+      <label for="env-mensaje">Mensaje</label>
+      <textarea id="env-mensaje" class="control" rows="7"></textarea>
+    </div>
+    <div id="dlg-enviar-error" class="error-general oculto" role="alert"></div>
+    <div class="dlg-acciones">
+      <button class="boton texto" value="cancelar" formnovalidate>Cancelar</button>
+      <button id="dlg-enviar-btn" class="boton primario" value="enviar">
+        <svg class="icono" aria-hidden="true"><use href="#i-correo"/></svg><span>Enviar</span>
+      </button>
     </div>
   </form>
 </dialog>
@@ -761,6 +797,7 @@
   prepararValidacion($('formulario'));
   prepararValidacion($('a-form'));
   prepararValidacion($('dlg-nuevo-form'));
+  prepararValidacion($('dlg-enviar-form'));
 
   /* ---------------- Navegación ---------------- */
   const TITULOS = { ticket: 'Nuevo ticket', totales: 'Totales', historico: 'Histórico', ajustes: 'Ajustes' };
@@ -1060,7 +1097,8 @@
       const meta = document.createElement('div');
       meta.className = 'meta';
       meta.textContent = [`Cerrado el ${fechaCorta(p.cerrado)}`, textoTickets(p.tickets),
-        p.desde ? `${p.desde} – ${p.hasta}` : ''].filter(Boolean).join(' · ');
+        p.desde ? `${p.desde} – ${p.hasta}` : '',
+        p.enviado ? `Enviado a ${p.enviadoA} el ${fechaCorta(p.enviado)}` : ''].filter(Boolean).join(' · ');
       nombre.append(titulo, meta);
       const imp = document.createElement('span');
       imp.className = 'importe';
@@ -1076,7 +1114,17 @@
         a.setAttribute('aria-label', `${texto} de ${p.nombre}`);
         return a;
       };
-      if (p.informeUrl) acciones.append(enlace(p.informeUrl, 'i-pdf', 'Informe'));
+      if (p.informeUrl) {
+        const enviar = document.createElement('button');
+        enviar.type = 'button';
+        enviar.className = 'boton peque';
+        enviar.innerHTML = '<svg class="icono" aria-hidden="true"><use href="#i-correo"/></svg>';
+        enviar.append(' Enviar');
+        enviar.setAttribute('aria-label', `Enviar por correo el informe de ${p.nombre}`);
+        enviar.addEventListener('click', () => abrirEnvio(p.id));
+        acciones.append(enviar);
+        acciones.append(enlace(p.informeUrl, 'i-pdf', 'Informe'));
+      }
       acciones.append(enlace(p.hojaUrl, 'i-hoja', 'Hoja'));
       const reabrir = document.createElement('button');
       reabrir.type = 'button';
@@ -1216,6 +1264,70 @@
     } finally {
       cerrando = false;
       mostrar($('dlg-cerrar-trabajando'), false);
+    }
+  });
+
+  /* Diálogo: enviar el informe por correo */
+  const dlgEnviar = $('dlg-enviar');
+  let idEnviar = null;
+  function abrirEnvio(id) {
+    const p = proyectos.cerrados.find((x) => x.id === id);
+    if (!p) return;
+    idEnviar = id;
+    const f = datos.firmante || {};
+    $('dlg-enviar-form').reset();
+    reiniciarValidacion($('dlg-enviar-form'));
+    mostrar($('dlg-enviar-error'), false);
+    $('dlg-enviar-t').textContent = `Enviar el informe de «${p.nombre}»`;
+    $('env-para').value = datos.destinatario || '';
+    $('env-asunto').value = `Informe de gastos - ${p.nombre}`;
+    $('env-mensaje').value = [
+      'Hola:',
+      '',
+      `Te adjunto el informe de gastos del proyecto «${p.nombre}»` +
+        (p.desde ? ` (del ${p.desde} al ${p.hasta})` : '') +
+        `, con un total de ${euros(p.total)} en ${textoTickets(p.tickets)}.`,
+      'Al final del PDF están las fotos de todos los tickets.',
+      '',
+      'Un saludo,',
+      f.nombre || '',
+    ].join('\n').trim();
+    dlgEnviar.showModal();
+  }
+  $('dlg-enviar-informe').addEventListener('click', () => {
+    dlgCerrar.close();
+    abrirEnvio(idCerrar);
+  });
+  dlgEnviar.addEventListener('close', () => { dlgEnviar.returnValue = ''; });
+  let enviando = false;
+  dlgEnviar.addEventListener('cancel', (ev) => { if (enviando) ev.preventDefault(); });
+  $('dlg-enviar-form').addEventListener('submit', async (ev) => {
+    if (!ev.submitter || ev.submitter.value !== 'enviar') return;
+    ev.preventDefault();
+    const boton = $('dlg-enviar-btn');
+    boton.disabled = true;
+    enviando = true;
+    ponerTextoBoton(boton, 'Enviando…');
+    mostrar($('dlg-enviar-error'), false);
+    try {
+      const r = await llamar('enviarInforme', idEnviar, {
+        para: $('env-para').value,
+        asunto: $('env-asunto').value.trim(),
+        mensaje: $('env-mensaje').value,
+      });
+      datos.destinatario = r.para;
+      ponerProyectos(r.lista);
+      dlgEnviar.close('enviado');
+      if ($('vista-historico').classList.contains('oculto')) irA('historico');
+      $('h-estado').textContent = `Informe enviado a ${r.para}.`;
+      mostrar($('h-estado'), true);
+      anunciador.textContent = `Informe enviado a ${r.para}.`;
+    } catch (e) {
+      mostrarError($('dlg-enviar-error'), e);
+    } finally {
+      enviando = false;
+      boton.disabled = false;
+      ponerTextoBoton(boton, 'Enviar');
     }
   });
 

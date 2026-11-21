@@ -114,6 +114,7 @@ function obtenerResumen() {
     ultimoProyecto: props_().getProperty('ULTIMO_PROYECTO') || '',
     categoriaPorComercio: leerRecordados_(),
     firmante: firmanteParaPantalla_(false),
+    destinatario: props_().getProperty('ULTIMO_DESTINATARIO') || '',
   };
 }
 
@@ -337,6 +338,8 @@ function listarProyectos() {
       informeUrl: p.informeUrl || null,
       desde: p.desde || null,
       hasta: p.hasta || null,
+      enviado: p.enviado || null,
+      enviadoA: p.enviadoA || null,
     };
   });
   return {
@@ -656,16 +659,15 @@ function crearInformePdf_(p, d, ahora, firmante) {
 
     cuerpo.appendParagraph('Detalle de tickets').setHeading(DocumentApp.ParagraphHeading.HEADING3);
     if (d.tickets.length) {
-      const filas = [['Fecha', 'Comercio', 'Categoría', 'Importe']].concat(d.tickets.map(function (t) {
-        return [t.fecha ? d.fmt(t.fecha) : '', t.comercio || ' ', t.categoria, euros(t.importe)];
+      const filas = [['Nº', 'Fecha', 'Comercio', 'Categoría', 'Importe']].concat(d.tickets.map(function (t, i) {
+        return [String(i + 1), t.fecha ? d.fmt(t.fecha) : '', t.comercio || ' ', t.categoria, euros(t.importe)];
       }));
-      filas.push(['', '', 'TOTAL', euros(d.total)]);
+      filas.push(['', '', '', 'TOTAL', euros(d.total)]);
       const tabla = cuerpo.appendTable(filas);
-      estilarTabla_(tabla, [72, 190, 110, 80], [3]);
-      d.tickets.forEach(function (t, i) {
-        if (t.url && t.comercio) tabla.getCell(i + 1, 1).editAsText().setLinkUrl(t.url);
-      });
+      estilarTabla_(tabla, [30, 70, 175, 105, 80], [0, 4]);
       tabla.getRow(filas.length - 1).editAsText().setBold(true);
+      const nota = cuerpo.appendParagraph('La foto de cada ticket está en el anexo, al final del informe, con el mismo número.');
+      nota.editAsText().setFontSize(9).setForegroundColor('#5f6368');
     } else {
       cuerpo.appendParagraph('Este proyecto no tiene tickets.');
     }
@@ -694,15 +696,120 @@ function crearInformePdf_(p, d, ahora, firmante) {
       hueco.editAsText().setForegroundColor('#9aa0a6');
     }
 
-    const pie = cuerpo.appendParagraph('Los comercios del detalle enlazan al PDF de cada ticket.');
-    pie.setSpacingBefore(24);
-    pie.editAsText().setFontSize(9).setForegroundColor('#5f6368');
+    // Anexo: una página por ticket con su foto (sin enlaces externos)
+    const anchoMax = cuerpo.getPageWidth() - 108;
+    const altoMax = cuerpo.getPageHeight() - 96 - 90;
+    d.tickets.forEach(function (t, i) {
+      cuerpo.appendPageBreak();
+      const cab = cuerpo.appendParagraph('Anexo · Ticket ' + (i + 1) + ' de ' + d.tickets.length);
+      cab.setHeading(DocumentApp.ParagraphHeading.HEADING3);
+      const info = cuerpo.appendParagraph([t.fecha ? d.fmt(t.fecha) : '', t.comercio, t.categoria, euros(t.importe)]
+        .filter(Boolean).join('  ·  '));
+      info.setSpacingAfter(10);
+      info.editAsText().setFontSize(10).setForegroundColor('#3c4043');
+      const foto = fotoDeTicket_(t.url);
+      if (foto) {
+        try {
+          const img = cuerpo.appendImage(foto);
+          const escala = Math.min(1, anchoMax / img.getWidth(), altoMax / img.getHeight());
+          img.setWidth(Math.floor(img.getWidth() * escala)).setHeight(Math.floor(img.getHeight() * escala));
+          return;
+        } catch (e) {
+          console.warn('No se pudo añadir la foto del ticket ' + (i + 1) + ': ' + e);
+        }
+      }
+      const falta = cuerpo.appendParagraph('(No se ha encontrado la foto de este ticket)');
+      falta.editAsText().setItalic(true).setForegroundColor('#80868b');
+    });
 
     doc.saveAndClose();
     return DriveApp.getFileById(docId).getAs(MimeType.PDF).setName(titulo + '.pdf');
   } finally {
     DriveApp.getFileById(docId).setTrashed(true);
   }
+}
+
+/**
+ * Devuelve la foto original de un ticket a partir del enlace a su PDF:
+ * primero por la descripción del PDF ("Foto original: <url>") y, si no,
+ * buscando en "Fotos originales" un archivo con el mismo nombre.
+ */
+function fotoDeTicket_(urlPdf) {
+  const id = extraerIdArchivo_(urlPdf);
+  if (!id) return null;
+  try {
+    const pdf = DriveApp.getFileById(id);
+    const m = String(pdf.getDescription() || '').match(/Foto original:\s*(\S+)/);
+    const idFoto = m ? extraerIdArchivo_(m[1]) : null;
+    if (idFoto) {
+      try {
+        const f = DriveApp.getFileById(idFoto);
+        if (!f.isTrashed()) return f.getBlob();
+      } catch (e) { /* se busca por nombre */ }
+    }
+    const base = pdf.getName().replace(/\.pdf$/i, '');
+    const padres = pdf.getParents();
+    while (padres.hasNext()) {
+      const fotos = padres.next().getFoldersByName(CONFIG.SUBCARPETA_FOTOS);
+      while (fotos.hasNext()) {
+        const carpeta = fotos.next();
+        for (const ext of ['.jpg', '.png']) {
+          const it = carpeta.getFilesByName(base + ext);
+          if (it.hasNext()) return it.next().getBlob();
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Foto no encontrada para ' + urlPdf + ': ' + e);
+  }
+  return null;
+}
+
+function extraerIdArchivo_(url) {
+  const m = String(url || '').match(/\/d\/([-\w]{10,})/) || String(url || '').match(/[?&]id=([-\w]{10,})/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Envía por correo el informe PDF de un proyecto cerrado, como adjunto,
+ * desde la cuenta de Gmail de quien usa la app.
+ * @param {string} id proyecto
+ * @param {{para:string, asunto:string, mensaje:string}} correo
+ */
+function enviarInforme(id, correo) {
+  const p = obtenerProyecto_(id);
+  if (!p.informeId) throw new Error('Este proyecto todavía no tiene informe. Ciérralo primero.');
+  const para = String(correo.para || '').split(/[,;\s]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+  if (!para.length) throw new Error('Escribe el correo del destinatario.');
+  const malos = para.filter(function (x) { return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); });
+  if (malos.length) throw new Error('Revisa este correo: ' + malos.join(', '));
+  if (MailApp.getRemainingDailyQuota() < para.length) {
+    throw new Error('Has llegado al límite diario de correos de Google. Prueba mañana o descarga el PDF y envíalo a mano.');
+  }
+
+  let pdf;
+  try {
+    pdf = DriveApp.getFileById(p.informeId);
+  } catch (e) {
+    throw new Error('No encuentro el PDF del informe. Reabre el proyecto y vuelve a cerrarlo.');
+  }
+  if (pdf.getSize() > 24 * 1024 * 1024) {
+    throw new Error('El informe pesa demasiado para enviarlo por correo (más de 24 MB). Descárgalo y compártelo con un enlace.');
+  }
+
+  const firmante = leerFirmante_();
+  MailApp.sendEmail({
+    to: para.join(','),
+    subject: String(correo.asunto || ('Informe de gastos - ' + p.nombre)).slice(0, 200),
+    body: String(correo.mensaje || ''),
+    name: firmante.nombre || 'Tickets de gastos',
+    attachments: [pdf.getBlob()],
+  });
+  props_().setProperty('ULTIMO_DESTINATARIO', para.join(', '));
+  p.enviado = new Date().toISOString();
+  p.enviadoA = para.join(', ');
+  guardarProyecto_(p);
+  return { para: para.join(', '), lista: listarProyectos() };
 }
 
 function estilarTabla_(tabla, anchos, columnasDerecha) {
