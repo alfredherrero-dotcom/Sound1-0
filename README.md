@@ -12,6 +12,17 @@ Una app web para el móvil que guarda los tickets de gastos en tu Google Drive:
    - la foto original se guarda al lado, en la subcarpeta `Fotos originales`
    - se añade una fila a la hoja de cálculo: `Fecha | Hora | Comercio | Categoría | Proyecto | Importe`. El nombre del comercio enlaza al PDF.
 
+### 📁 Proyectos (una hoja de cálculo por proyecto)
+- **Nuevo proyecto** (botón «+ Nuevo» o «+» junto al desplegable): crea en Drive la carpeta del proyecto y su hoja `Gastos - <Proyecto>`.
+- Al guardar un ticket eliges en el **desplegable** el proyecto al que va. Solo aparecen los proyectos activos.
+- **Candado verde 🔓**: cierra el proyecto. Tras confirmar:
+  - se calcula el total,
+  - se crea la pestaña **Informe** en su hoja (resumen, desglose por categoría y detalle con enlace a cada ticket),
+  - se guarda un **PDF del informe** en su carpeta, listo para presentar y cobrar,
+  - el proyecto desaparece del desplegable.
+- **Histórico**: lista los proyectos cerrados con su total, el informe y la hoja. Con **Reabrir** vuelve al desplegable; si lo cierras otra vez, el informe se rehace.
+- Además, todos los tickets se apuntan en la **hoja general** (`Gastos - Tickets`), que es la que usan los Totales.
+
 ### 📊 Totales
 - En la app, pestaña **Totales**: eliges el periodo (este mes, mes pasado, trimestre, año o fechas a mano) y el proyecto (todos, uno concreto o "sin proyecto"). Ves el total, el número de tickets y el desglose por categoría y por proyecto.
 - En la hoja de cálculo, pestaña **Resumen**: cambias *Desde*, *Hasta* y *Proyecto* (las celdas amarillas) y se recalculan el total y los desgloses.

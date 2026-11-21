@@ -149,7 +149,7 @@
     .control:user-invalid { border-color: var(--error); background: var(--fondo-error); }
     .error-msg { display: none; align-items: flex-start; gap: 6px; margin: 6px 0 0; color: var(--error); font-size: .875rem; font-weight: 500; }
     .error-msg svg.icono { width: 18px; height: 18px; margin-top: 1px; }
-    .control:user-invalid ~ .error-msg { display: flex; }
+    .campo:has(.control:user-invalid) > .error-msg { display: flex; }
 
     .fila { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .fila .campo { min-width: 0; }
@@ -180,7 +180,7 @@
 
     .hecho { text-align: center; }
     .hecho-icono { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; margin: 4px auto 12px;
-      background: color-mix(in oklch, var(--ok) 16%, transparent); color: var(--ok); }
+      background: color-mix(in oklab, var(--ok) 16%, transparent); color: var(--ok); }
     .hecho-icono svg.icono { width: 34px; height: 34px; stroke-width: 2.4; }
     .hecho h2 { font-size: 1.25rem; margin-bottom: 4px; }
     .hecho .nota { margin: 0 0 18px; word-break: break-word; }
@@ -230,22 +230,54 @@
     @media (hover: hover) { .carpetas button:hover { background: var(--tinte); } }
     .carpetas .vacio { padding: 14px; }
 
+    /* ============ Proyectos ============ */
+    button.boton-icono { cursor: pointer; font: inherit; padding: 0;
+      transition: background-color 150ms ease-out, scale 120ms ease-out; }
+    button.boton-icono:active:not(:disabled) { scale: 0.94; }
+    .boton-icono.candado { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 45%, var(--borde));
+      background: color-mix(in oklab, var(--ok) 12%, var(--sup)); }
+    @media (hover: hover) { .boton-icono.candado:hover:not(:disabled) { background: color-mix(in oklab, var(--ok) 22%, var(--sup)); } }
+    .boton-icono:disabled { opacity: .35; cursor: not-allowed; }
+    .linea > .boton-icono { width: 50px; height: 50px; }
+    .lista .derecha { display: flex; align-items: center; gap: 10px; flex: none; }
+    .historico li { flex-wrap: wrap; }
+    .historico .nombre { flex: 1 1 0; }
+    .historico .enlaces { flex-basis: 100%; margin-top: 4px; display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; }
+    .historico .enlaces .boton { padding-inline: 8px; }
+
+    /* ============ Diálogos ============ */
+    dialog { border: 0; padding: 0; border-radius: 22px; background: var(--sup); color: var(--texto);
+      width: min(440px, calc(100% - 32px)); max-height: calc(100% - 32px); box-shadow: 0 24px 64px oklch(0% 0 0 / 0.35); }
+    dialog:modal { overscroll-behavior: contain; }
+    dialog::backdrop { background: oklch(15% 0.02 265 / 0.55); overflow: hidden; overscroll-behavior: contain; }
+    .dlg-cuerpo { padding: 22px; }
+    .dlg-cuerpo h2 { font-size: 1.2rem; margin-bottom: 6px; }
+    .dlg-cuerpo > p { margin: 0; color: var(--suave); }
+    .dlg-icono { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; margin-bottom: 14px;
+      background: color-mix(in oklab, var(--ok) 15%, transparent); color: var(--ok); }
+    .dlg-icono svg.icono { width: 28px; height: 28px; }
+    .dlg-acciones { display: flex; gap: 10px; margin-top: 22px; }
+    .dlg-acciones .boton { margin: 0; flex: 1; }
+    .dlg-hecho { display: grid; gap: 10px; margin-top: 20px; }
+    .dlg-hecho .boton + .boton { margin-top: 0; }
+
     /* ============ Navegación inferior ============ */
     .nav-inferior {
       position: fixed; inset: auto 0 0 0; z-index: 10;
-      background: color-mix(in oklch, var(--sup) 88%, transparent);
+      background: color-mix(in oklab, var(--sup) 88%, transparent);
       backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
       border-top: 1px solid var(--borde);
       padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
       view-transition-name: nav-inferior;
     }
     .nav-inferior ul { list-style: none; margin: 0 auto; padding: 0; max-width: 520px;
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
     .nav-inferior button { width: 100%; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 2px; font: inherit; font-size: .78rem; font-weight: 600; color: var(--suave); background: none; border: 0;
       border-radius: 14px; cursor: pointer; -webkit-tap-highlight-color: transparent;
       transition: color 150ms ease-out, background-color 150ms ease-out; }
-    .nav-inferior button .burbuja { display: grid; place-items: center; width: 56px; height: 30px; border-radius: 999px;
+    .nav-inferior button .burbuja { display: grid; place-items: center; width: 52px; height: 30px; border-radius: 999px;
       transition: background-color 150ms ease-out; }
     .nav-inferior button[aria-current="page"] { color: var(--texto); }
     .nav-inferior button[aria-current="page"] .burbuja { background: var(--tinte); color: var(--marca); }
@@ -277,6 +309,10 @@
   <symbol id="i-error" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></symbol>
   <symbol id="i-aviso" viewBox="0 0 24 24"><path d="M10.3 4.2 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4M12 17v.01"/></symbol>
   <symbol id="i-guardar" viewBox="0 0 24 24"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/></symbol>
+  <symbol id="i-abierto" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 7.7-1.5"/><path d="M12 15v2"/></symbol>
+  <symbol id="i-cerrado" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/><path d="M12 15v2"/></symbol>
+  <symbol id="i-mas" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-archivo" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/></symbol>
   <symbol id="i-pdf" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
 </svg>
 
@@ -302,6 +338,17 @@
         <p class="cifra" id="mes-total">0,00 €</p>
       </div>
       <p class="etiqueta" id="mes-num"></p>
+    </section>
+
+    <section id="tarjeta-proyectos" class="tarjeta oculto" aria-labelledby="t-proyectos">
+      <div class="tarjeta-cabecera">
+        <h2 id="t-proyectos">Proyectos activos</h2>
+        <button id="p-nuevo" class="boton peque" type="button">
+          <svg class="icono" aria-hidden="true"><use href="#i-mas"/></svg> Nuevo
+        </button>
+      </div>
+      <ul id="lista-activos" class="lista"></ul>
+      <p id="sin-activos" class="vacio oculto">No hay proyectos activos. Crea uno para empezar a guardar tickets.</p>
     </section>
 
     <section id="paso-captura" class="tarjeta" aria-labelledby="t-captura">
@@ -367,9 +414,19 @@
         </div>
 
         <div class="campo">
-          <label for="proyecto">Proyecto <span class="opcional">(opcional)</span></label>
-          <input id="proyecto" class="control" type="text" list="lista-proyectos" maxlength="80" placeholder="Ej.: Viaje Bilbao noviembre">
-          <datalist id="lista-proyectos"></datalist>
+          <label for="proyecto">Proyecto (hoja donde se guarda el gasto)</label>
+          <div class="linea">
+            <select id="proyecto" class="control" required data-error="proyecto-error">
+              <option value="" disabled selected>Elige un proyecto</option>
+            </select>
+            <button id="f-cerrar" class="boton-icono candado" type="button" aria-label="Cerrar el proyecto elegido" title="Cerrar el proyecto" disabled>
+              <svg class="icono" aria-hidden="true"><use href="#i-abierto"/></svg>
+            </button>
+            <button id="f-nuevo" class="boton-icono" type="button" aria-label="Crear un proyecto nuevo" title="Nuevo proyecto">
+              <svg class="icono" aria-hidden="true"><use href="#i-mas"/></svg>
+            </button>
+          </div>
+          <p id="proyecto-error" class="error-msg"><svg class="icono" role="img" aria-label="Error"><use href="#i-error"/></svg>Elige un proyecto o crea uno nuevo con el botón +.</p>
         </div>
 
         <div id="error" class="error-general oculto" role="alert"></div>
@@ -448,13 +505,25 @@
     </section>
   </div>
 
+  <!-- ============ HISTÓRICO ============ -->
+  <div id="vista-historico" class="oculto">
+    <section class="tarjeta" aria-labelledby="t-historico">
+      <h2 id="t-historico">Proyectos cerrados</h2>
+      <p class="nota" style="margin:0 0 12px">Aquí están los informes para presentar. Si necesitas añadir más gastos a un proyecto, reábrelo.</p>
+      <div id="h-estado" class="aviso-revisar oculto" role="status" style="margin:0 0 12px"></div>
+      <div id="h-error" class="error-general oculto" role="alert" style="margin:0 0 12px"></div>
+      <ul id="lista-cerrados" class="lista historico"></ul>
+      <p id="sin-cerrados" class="vacio oculto">Todavía no has cerrado ningún proyecto.</p>
+    </section>
+  </div>
+
   <!-- ============ AJUSTES ============ -->
   <div id="vista-ajustes" class="oculto">
     <div id="a-cargando" class="tarjeta estado" role="status"><div class="girando" aria-hidden="true"></div> Cargando ajustes…</div>
     <form id="a-form" class="oculto" autocomplete="off">
       <section class="tarjeta" aria-labelledby="t-carpeta">
         <h2 id="t-carpeta">Carpeta de Drive</h2>
-        <p class="nota" style="margin:0 0 12px">Cada proyecto tendrá aquí su subcarpeta. Los tickets sin proyecto van a «Sin proyecto», por año y mes.</p>
+        <p class="nota" style="margin:0 0 12px">Aquí se crea una carpeta por proyecto, con su hoja de cálculo, los PDF de los tickets y el informe de cierre.</p>
         <p class="ruta"><svg class="icono" aria-hidden="true"><use href="#i-carpeta"/></svg><span id="a-ruta"></span></p>
         <button id="a-cambiar" class="boton" type="button">Cambiar carpeta</button>
 
@@ -476,7 +545,8 @@
       </section>
 
       <section class="tarjeta" aria-labelledby="t-hoja">
-        <h2 id="t-hoja">Hoja de cálculo</h2>
+        <h2 id="t-hoja">Hoja general</h2>
+        <p class="nota" style="margin:0 0 12px">Registro con todos los tickets de todos los proyectos. Se usa para los Totales.</p>
         <div class="campo" style="margin-top:0">
           <label for="a-nombre-hoja">Nombre</label>
           <input id="a-nombre-hoja" class="control" type="text" required maxlength="100" data-error="a-nombre-error">
@@ -498,7 +568,7 @@
       </section>
 
       <div id="a-error" class="error-general oculto" role="alert"></div>
-      <p id="a-ok" class="aviso-revisar oculto" role="status" style="background:color-mix(in oklch, var(--ok) 15%, transparent)">
+      <p id="a-ok" class="aviso-revisar oculto" role="status" style="background:color-mix(in oklab, var(--ok) 15%, transparent)">
         <svg class="icono" aria-hidden="true" style="color:var(--ok)"><use href="#i-ok"/></svg><span>Ajustes guardados</span>
       </p>
       <div class="acciones">
@@ -516,10 +586,54 @@
       <span class="burbuja"><svg class="icono" aria-hidden="true"><use href="#i-camara"/></svg></span>Ticket</button></li>
     <li><button type="button" data-vista="totales">
       <span class="burbuja"><svg class="icono" aria-hidden="true"><use href="#i-grafico"/></svg></span>Totales</button></li>
+    <li><button type="button" data-vista="historico">
+      <span class="burbuja"><svg class="icono" aria-hidden="true"><use href="#i-archivo"/></svg></span>Histórico</button></li>
     <li><button type="button" data-vista="ajustes">
       <span class="burbuja"><svg class="icono" aria-hidden="true"><use href="#i-ajustes"/></svg></span>Ajustes</button></li>
   </ul>
 </nav>
+
+<dialog id="dlg-nuevo" aria-labelledby="dlg-nuevo-t">
+  <form id="dlg-nuevo-form" method="dialog" class="dlg-cuerpo" autocomplete="off">
+    <h2 id="dlg-nuevo-t">Nuevo proyecto</h2>
+    <p>Se creará su carpeta y su hoja de cálculo en Drive.</p>
+    <div class="campo">
+      <label for="nuevo-proy">Nombre del proyecto</label>
+      <input id="nuevo-proy" class="control" type="text" required maxlength="80" placeholder="Ej.: Viaje Bilbao noviembre" autofocus data-error="nuevo-proy-error">
+      <p id="nuevo-proy-error" class="error-msg"><svg class="icono" role="img" aria-label="Error"><use href="#i-error"/></svg>Escribe un nombre.</p>
+    </div>
+    <div id="dlg-nuevo-error" class="error-general oculto" role="alert"></div>
+    <div class="dlg-acciones">
+      <button class="boton texto" value="cancelar" formnovalidate>Cancelar</button>
+      <button id="dlg-nuevo-crear" class="boton primario" value="crear"><span>Crear proyecto</span></button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-cerrar" aria-labelledby="dlg-cerrar-t" aria-describedby="dlg-cerrar-texto">
+  <form id="dlg-cerrar-form" method="dialog" class="dlg-cuerpo">
+    <div class="dlg-icono" aria-hidden="true"><svg class="icono"><use id="dlg-cerrar-uso" href="#i-abierto"/></svg></div>
+    <h2 id="dlg-cerrar-t" tabindex="-1">¿Cerrar el proyecto?</h2>
+    <p id="dlg-cerrar-texto"></p>
+    <div id="dlg-cerrar-trabajando" class="estado oculto" role="status"><div class="girando" aria-hidden="true"></div> Calculando el total y creando el informe…</div>
+    <div id="dlg-cerrar-error" class="error-general oculto" role="alert"></div>
+    <div id="dlg-cerrar-botones" class="dlg-acciones">
+      <button id="dlg-cerrar-cancelar" class="boton texto" value="cancelar" autofocus>Cancelar</button>
+      <button class="boton primario" value="cerrar">
+        <svg class="icono" aria-hidden="true"><use href="#i-cerrado"/></svg><span>Sí, cerrar</span>
+      </button>
+    </div>
+    <div id="dlg-cerrar-hecho" class="dlg-hecho oculto">
+      <a id="dlg-informe" class="boton primario" target="_blank" rel="noopener">
+        <svg class="icono" aria-hidden="true"><use href="#i-pdf"/></svg> Ver el informe PDF
+      </a>
+      <a id="dlg-hoja" class="boton" target="_blank" rel="noopener">
+        <svg class="icono" aria-hidden="true"><use href="#i-hoja"/></svg> Abrir la hoja del proyecto
+      </a>
+      <button class="boton texto" value="hecho">Hecho</button>
+    </div>
+  </form>
+</dialog>
 
 <div id="anunciador" class="visualmente-oculto" aria-live="polite"></div>
 
@@ -530,6 +644,7 @@
   let ajustes = null;             // configuración cargada
   let carpetaElegida = null;      // { id, ruta }
   let carpetaExplorada = null;    // carpeta abierta en el explorador
+  let proyectos = { activos: [], cerrados: [] };
 
   function llamar(funcion, ...args) {
     return new Promise((ok, ko) => {
@@ -598,20 +713,22 @@
   }
   prepararValidacion($('formulario'));
   prepararValidacion($('a-form'));
+  prepararValidacion($('dlg-nuevo-form'));
 
   /* ---------------- Navegación ---------------- */
-  const TITULOS = { ticket: 'Nuevo ticket', totales: 'Totales', ajustes: 'Ajustes' };
+  const TITULOS = { ticket: 'Nuevo ticket', totales: 'Totales', historico: 'Histórico', ajustes: 'Ajustes' };
   document.querySelectorAll('.nav-inferior button').forEach((b) => b.addEventListener('click', () => irA(b.dataset.vista)));
   function irA(vista) {
     conTransicion(() => {
       document.querySelectorAll('.nav-inferior button').forEach((b) => {
         if (b.dataset.vista === vista) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
       });
-      ['ticket', 'totales', 'ajustes'].forEach((v) => mostrar($('vista-' + v), v === vista));
+      ['ticket', 'totales', 'historico', 'ajustes'].forEach((v) => mostrar($('vista-' + v), v === vista));
       $('titulo-vista').textContent = TITULOS[vista];
       window.scrollTo(0, 0);
     }, $('titulo-vista'));
     if (vista === 'ajustes') cargarAjustes();
+    if (vista === 'historico') cargarHistorico();
   }
 
   /* ---------------- Ticket ---------------- */
@@ -620,6 +737,7 @@
     conTransicion(() => {
       ['paso-captura', 'paso-revision', 'paso-hecho'].forEach((id) => mostrar($(id), id === paso));
       mostrar($('tarjeta-mes'), paso === 'paso-captura' && !!datos.mes);
+      mostrar($('tarjeta-proyectos'), paso === 'paso-captura' && !!datos.listaProyectos);
       window.scrollTo(0, 0);
     }, $(TITULO_PASO[paso]));
   }
@@ -630,9 +748,6 @@
     sel.innerHTML = '<option value="" disabled selected>Elige una categoría</option>';
     datos.categorias.forEach((c) => sel.add(new Option(c, c)));
     if (actual) elegirCategoria(actual);
-
-    $('lista-proyectos').innerHTML = '';
-    datos.proyectos.forEach((p) => $('lista-proyectos').appendChild(new Option(p)));
 
     const tp = $('t-proyecto');
     const tActual = tp.value;
@@ -705,7 +820,7 @@
       $('comercio').value = r.comercio;
       $('importe').value = r.importe === '' ? '' : Number(r.importe).toFixed(2).replace('.', ',');
       elegirCategoria(r.categoria || datos.categoriaPorComercio[normalizar(r.comercio)] || '');
-      $('proyecto').value = datos.ultimoProyecto || '';
+      rellenarSelectProyectos(datos.ultimoProyecto || '');
 
       let revisar = false;
       ['fecha', 'hora', 'comercio', 'importe'].forEach((c) => {
@@ -747,7 +862,7 @@
         comercio: $('comercio').value.trim(),
         importe: $('importe').value.trim(),
         categoria: $('categoria').value,
-        proyecto: $('proyecto').value.trim(),
+        proyectoId: $('proyecto').value,
       });
       imagenActual = null;
       $('hecho-nombre').textContent = r.nombre;
@@ -767,6 +882,8 @@
       const r = await llamar('obtenerResumen');
       datos = r;
       rellenarListas();
+      ponerProyectos(r.listaProyectos);
+      mostrar($('tarjeta-proyectos'), !$('paso-captura').classList.contains('oculto'));
       ['enlace-hoja', 't-enlace-hoja', 'cab-hoja'].forEach((id) => { $(id).href = r.hojaUrl; });
       $('enlace-carpeta').href = r.carpetaUrl;
 
@@ -817,6 +934,222 @@
   $('formulario').addEventListener('submit', alGuardar);
   $('cancelar').addEventListener('click', () => { imagenActual = null; mostrarPaso('paso-captura'); });
   $('otro').addEventListener('click', () => mostrarPaso('paso-captura'));
+
+  /* ---------------- Proyectos ---------------- */
+  const fechaCorta = (isoTxt) => isoTxt ? new Date(isoTxt).toLocaleDateString('es-ES') : '';
+  const textoTickets = (n) => n === 1 ? '1 ticket' : `${n} tickets`;
+
+  function ponerProyectos(lista) {
+    if (!lista) return;
+    proyectos = lista;
+    pintarActivos();
+    rellenarSelectProyectos();
+    pintarHistorico();
+  }
+
+  function rellenarSelectProyectos(preferido) {
+    const sel = $('proyecto');
+    const elegido = preferido !== undefined ? preferido : sel.value;
+    sel.innerHTML = '<option value="" disabled>Elige un proyecto</option>';
+    proyectos.activos.forEach((p) => sel.add(new Option(p.nombre, p.id)));
+    if (proyectos.activos.some((p) => p.id === elegido)) sel.value = elegido;
+    else if (proyectos.activos.length === 1 && preferido !== undefined) sel.value = proyectos.activos[0].id;
+    else sel.selectedIndex = 0;
+    actualizarCandado();
+  }
+  function actualizarCandado() {
+    const sel = $('proyecto');
+    const nombre = sel.value ? sel.selectedOptions[0].text : '';
+    $('f-cerrar').disabled = !sel.value;
+    $('f-cerrar').setAttribute('aria-label', nombre ? `Cerrar el proyecto ${nombre}` : 'Cerrar el proyecto elegido');
+  }
+  $('proyecto').addEventListener('change', actualizarCandado);
+
+  function botonCandado(p) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'boton-icono candado';
+    b.title = 'Cerrar el proyecto';
+    b.setAttribute('aria-label', `Cerrar el proyecto ${p.nombre}`);
+    b.innerHTML = '<svg class="icono" aria-hidden="true"><use href="#i-abierto"/></svg>';
+    b.addEventListener('click', () => pedirCierre(p.id, b));
+    return b;
+  }
+
+  function pintarActivos() {
+    const ul = $('lista-activos');
+    ul.innerHTML = '';
+    proyectos.activos.forEach((p) => {
+      const li = document.createElement('li');
+      const nombre = document.createElement('div');
+      nombre.className = 'nombre';
+      const enlace = document.createElement('a');
+      enlace.href = p.hojaUrl; enlace.target = '_blank'; enlace.rel = 'noopener';
+      enlace.textContent = p.nombre;
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = textoTickets(p.tickets);
+      nombre.append(enlace, meta);
+      const derecha = document.createElement('div');
+      derecha.className = 'derecha';
+      const imp = document.createElement('span');
+      imp.className = 'importe';
+      imp.textContent = euros(p.total);
+      derecha.append(imp, botonCandado(p));
+      li.append(nombre, derecha);
+      ul.appendChild(li);
+    });
+    mostrar($('sin-activos'), proyectos.activos.length === 0);
+  }
+
+  function pintarHistorico() {
+    const ul = $('lista-cerrados');
+    ul.innerHTML = '';
+    proyectos.cerrados.forEach((p) => {
+      const li = document.createElement('li');
+      const nombre = document.createElement('div');
+      nombre.className = 'nombre';
+      const titulo = document.createElement('span');
+      titulo.textContent = p.nombre;
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = [`Cerrado el ${fechaCorta(p.cerrado)}`, textoTickets(p.tickets),
+        p.desde ? `${p.desde} – ${p.hasta}` : ''].filter(Boolean).join(' · ');
+      nombre.append(titulo, meta);
+      const imp = document.createElement('span');
+      imp.className = 'importe';
+      imp.textContent = euros(p.total);
+
+      const acciones = document.createElement('div');
+      acciones.className = 'enlaces';
+      const enlace = (href, icono, texto) => {
+        const a = document.createElement('a');
+        a.className = 'boton peque'; a.href = href; a.target = '_blank'; a.rel = 'noopener';
+        a.innerHTML = `<svg class="icono" aria-hidden="true"><use href="#${icono}"/></svg>`;
+        a.append(' ' + texto);
+        a.setAttribute('aria-label', `${texto} de ${p.nombre}`);
+        return a;
+      };
+      if (p.informeUrl) acciones.append(enlace(p.informeUrl, 'i-pdf', 'Informe'));
+      acciones.append(enlace(p.hojaUrl, 'i-hoja', 'Hoja'));
+      const reabrir = document.createElement('button');
+      reabrir.type = 'button';
+      reabrir.className = 'boton peque';
+      reabrir.innerHTML = '<svg class="icono" aria-hidden="true"><use href="#i-abierto"/></svg>';
+      reabrir.append(' Reabrir');
+      reabrir.setAttribute('aria-label', `Reabrir ${p.nombre}`);
+      reabrir.addEventListener('click', () => reabrirProyecto(p, reabrir));
+      acciones.append(reabrir);
+
+      li.append(nombre, imp, acciones);
+      ul.appendChild(li);
+    });
+    mostrar($('sin-cerrados'), proyectos.cerrados.length === 0);
+  }
+
+  async function cargarHistorico() {
+    mostrar($('h-estado'), false);
+    mostrar($('h-error'), false);
+    try { ponerProyectos(await llamar('listarProyectos')); } catch (e) { mostrarError($('h-error'), e); }
+  }
+
+  async function reabrirProyecto(p, boton) {
+    mostrar($('h-estado'), false);
+    mostrar($('h-error'), false);
+    boton.disabled = true;
+    try {
+      ponerProyectos(await llamar('reabrirProyecto', p.id));
+      $('h-estado').textContent = `«${p.nombre}» vuelve a estar activo y ya aparece en el desplegable.`;
+      mostrar($('h-estado'), true);
+      $('t-historico').setAttribute('tabindex', '-1');
+      $('t-historico').focus();
+    } catch (e) {
+      boton.disabled = false;
+      mostrarError($('h-error'), e);
+    }
+  }
+
+  /* Diálogo: nuevo proyecto */
+  const dlgNuevo = $('dlg-nuevo');
+  function abrirNuevo() {
+    $('dlg-nuevo-form').reset();
+    reiniciarValidacion($('dlg-nuevo-form'));
+    mostrar($('dlg-nuevo-error'), false);
+    dlgNuevo.showModal();
+  }
+  $('f-nuevo').addEventListener('click', abrirNuevo);
+  $('p-nuevo').addEventListener('click', abrirNuevo);
+  $('dlg-nuevo-form').addEventListener('submit', async (ev) => {
+    if (!ev.submitter || ev.submitter.value !== 'crear') return; // Cancelar: cierra sin más
+    ev.preventDefault();
+    const boton = $('dlg-nuevo-crear');
+    boton.disabled = true;
+    ponerTextoBoton(boton, 'Creando…');
+    mostrar($('dlg-nuevo-error'), false);
+    try {
+      const r = await llamar('crearProyecto', $('nuevo-proy').value.trim());
+      ponerProyectos(r.lista);
+      rellenarSelectProyectos(r.proyecto);
+      datos.ultimoProyecto = r.proyecto;
+      dlgNuevo.close('crear');
+    } catch (e) {
+      mostrarError($('dlg-nuevo-error'), e);
+    } finally {
+      boton.disabled = false;
+      ponerTextoBoton(boton, 'Crear proyecto');
+    }
+  });
+  dlgNuevo.addEventListener('close', () => { dlgNuevo.returnValue = ''; });
+
+  /* Diálogo: cerrar proyecto (candado verde) */
+  const dlgCerrar = $('dlg-cerrar');
+  let idCerrar = null;
+  let cerrando = false;
+  function pedirCierre(id) {
+    const p = proyectos.activos.find((x) => x.id === id);
+    if (!p) return;
+    idCerrar = id;
+    $('dlg-cerrar-t').textContent = `¿Cerrar «${p.nombre}»?`;
+    $('dlg-cerrar-texto').textContent = `Se calculará el total (${textoTickets(p.tickets)}, ${euros(p.total)}), ` +
+      'se creará el informe en PDF para presentarlo y el proyecto desaparecerá del desplegable. ' +
+      'Podrás recuperarlo desde Histórico.';
+    $('dlg-cerrar-uso').setAttribute('href', '#i-abierto');
+    mostrar($('dlg-cerrar-botones'), true);
+    mostrar($('dlg-cerrar-hecho'), false);
+    mostrar($('dlg-cerrar-trabajando'), false);
+    mostrar($('dlg-cerrar-error'), false);
+    dlgCerrar.showModal();
+  }
+  $('f-cerrar').addEventListener('click', () => pedirCierre($('proyecto').value));
+  dlgCerrar.addEventListener('cancel', (ev) => { if (cerrando) ev.preventDefault(); });
+  dlgCerrar.addEventListener('close', () => { dlgCerrar.returnValue = ''; });
+  $('dlg-cerrar-form').addEventListener('submit', async (ev) => {
+    if (!ev.submitter || ev.submitter.value !== 'cerrar') return; // Cancelar / Hecho
+    ev.preventDefault();
+    cerrando = true;
+    mostrar($('dlg-cerrar-botones'), false);
+    mostrar($('dlg-cerrar-error'), false);
+    mostrar($('dlg-cerrar-trabajando'), true);
+    try {
+      const r = await llamar('cerrarProyecto', idCerrar);
+      ponerProyectos(r.lista);
+      $('dlg-cerrar-uso').setAttribute('href', '#i-cerrado');
+      $('dlg-cerrar-t').textContent = `«${r.nombre}» cerrado`;
+      $('dlg-cerrar-texto').textContent = `Total a cobrar: ${euros(r.total)} (${textoTickets(r.tickets)}). ` +
+        'El informe está en la carpeta del proyecto y en la pestaña «Informe» de su hoja.';
+      $('dlg-informe').href = r.informeUrl;
+      $('dlg-hoja').href = r.hojaUrl;
+      mostrar($('dlg-cerrar-hecho'), true);
+      $('dlg-cerrar-t').focus();
+      cargarResumen();
+    } catch (e) {
+      mostrarError($('dlg-cerrar-error'), e);
+      mostrar($('dlg-cerrar-botones'), true);
+    } finally {
+      cerrando = false;
+      mostrar($('dlg-cerrar-trabajando'), false);
+    }
+  });
 
   /* ---------------- Totales ---------------- */
   function ponerPeriodo(tipo) {

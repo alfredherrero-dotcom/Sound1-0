@@ -107,6 +107,7 @@ function obtenerResumen() {
     nombreHoja: hoja.getParent().getName(),
     ultimos: ultimos,
     mes: mes,
+    listaProyectos: listarProyectos(),
     categorias: obtenerCategorias_(),
     proyectos: Object.keys(proyectos).sort(function (a, b) { return a.localeCompare(b, 'es'); }),
     ultimoProyecto: props_().getProperty('ULTIMO_PROYECTO') || '',
@@ -161,7 +162,7 @@ function analizarTicket(imagenBase64, mimeType) {
 /**
  * Guarda el ticket: PDF + foto original en Drive y fila en la hoja.
  * @param {{imagenBase64:string, mimeType:string, fecha:string, hora:string,
- *          comercio:string, categoria:string, proyecto:string,
+ *          comercio:string, categoria:string, proyectoId:string,
  *          importe:(number|string)}} datos
  */
 function guardarTicket(datos) {
@@ -169,8 +170,11 @@ function guardarTicket(datos) {
   const hora = String(datos.hora || '');
   const comercio = String(datos.comercio || '').trim();
   const categoria = String(datos.categoria || '').trim();
-  const proyecto = String(datos.proyecto || '').trim();
   const importe = aNumero_(String(datos.importe));
+  const proyectoId = String(datos.proyectoId || '').trim();
+  const p = proyectoId ? obtenerProyecto_(proyectoId) : null;
+  if (p && p.estado === 'cerrado') throw new Error('El proyecto «' + p.nombre + '» está cerrado. Reábrelo desde Histórico.');
+  const proyecto = p ? p.nombre : '';
 
   const mFecha = fecha.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!mFecha) throw new Error('La fecha no es válida.');
@@ -185,13 +189,13 @@ function guardarTicket(datos) {
   const dia = Number(mFecha[3]);
 
   // Carpetas:
-  //   con proyecto: <carpeta elegida> / <Proyecto> / Fotos originales
+  //   con proyecto: carpeta del proyecto (con su hoja) / Fotos originales
   //   sin proyecto: <carpeta elegida> / Sin proyecto / 2026 / 11 - Noviembre / Fotos originales
-  const raiz = obtenerCarpetaRaiz_();
   let destino;
-  if (proyecto) {
-    destino = obtenerSubcarpeta_(raiz, limpiarNombre_(proyecto));
+  if (p) {
+    destino = carpetaProyecto_(p);
   } else {
+    const raiz = obtenerCarpetaRaiz_();
     const sinProyecto = obtenerSubcarpeta_(raiz, 'Sin proyecto');
     const carpetaAnio = obtenerSubcarpeta_(sinProyecto, anio);
     destino = obtenerSubcarpeta_(carpetaAnio, pad2_(mes) + ' - ' + MESES[mes - 1]);
@@ -233,10 +237,23 @@ function guardarTicket(datos) {
       new Date(Number(anio), mes - 1, dia), hora, comercio, categoria, proyecto, importe]]);
     hoja.getRange(fila, COL.COMERCIO).setRichTextValue(
       SpreadsheetApp.newRichTextValue().setText(comercio).setLinkUrl(pdf.getUrl()).build());
+
+    // Fila en la hoja del proyecto
+    if (p) {
+      const hp = hojaProyecto_(p);
+      const filaP = hp.getLastRow() + 1;
+      hp.getRange(filaP, 1, 1, P_NCOLS).setValues([[
+        new Date(Number(anio), mes - 1, dia), hora, comercio, categoria, importe]]);
+      hp.getRange(filaP, PCOL.COMERCIO).setRichTextValue(
+        SpreadsheetApp.newRichTextValue().setText(comercio).setLinkUrl(pdf.getUrl()).build());
+      p.tickets = (p.tickets || 0) + 1;
+      p.total = redondear_((p.total || 0) + importe);
+      guardarProyecto_(p);
+    }
     SpreadsheetApp.flush();
 
     recordarCategoria_(comercio, categoria);
-    props_().setProperty('ULTIMO_PROYECTO', proyecto);
+    props_().setProperty('ULTIMO_PROYECTO', proyectoId);
     return { pdfUrl: pdf.getUrl(), nombre: pdf.getName() };
   } catch (e) {
     creados.forEach(function (f) { try { f.setTrashed(true); } catch (x) { /* ignorar */ } });
@@ -289,6 +306,373 @@ function obtenerTotales(desde, hasta, proyecto) {
   res.porCategoria = aLista(porCat);
   res.porProyecto = aLista(porPro);
   return res;
+}
+
+/* ------------------------------------------------------------------ */
+/* Proyectos: cada uno con su carpeta y su hoja de cálculo             */
+/* ------------------------------------------------------------------ */
+
+const PREFIJO_PROYECTO = 'PROY_';
+const PCOL = { FECHA: 1, HORA: 2, COMERCIO: 3, CATEGORIA: 4, IMPORTE: 5 };
+const P_NCOLS = 5;
+const P_CABECERAS = ['Fecha', 'Hora', 'Comercio', 'Categoría', 'Importe'];
+const NOMBRE_INFORME = 'Informe';
+const FORMATO_EUROS = '#,##0.00 [$€-C0A]';
+
+/** Proyectos activos (para el desplegable) y cerrados (histórico). */
+function listarProyectos() {
+  const todos = leerProyectos_().map(function (p) {
+    return {
+      id: p.id,
+      nombre: p.nombre,
+      estado: p.estado,
+      tickets: p.tickets || 0,
+      total: p.total || 0,
+      creado: p.creado,
+      cerrado: p.cerrado || null,
+      hojaUrl: 'https://docs.google.com/spreadsheets/d/' + p.id + '/edit',
+      carpetaUrl: 'https://drive.google.com/drive/folders/' + p.carpetaId,
+      informeUrl: p.informeUrl || null,
+      desde: p.desde || null,
+      hasta: p.hasta || null,
+    };
+  });
+  return {
+    activos: todos.filter(function (p) { return p.estado !== 'cerrado'; })
+      .sort(function (a, b) { return a.nombre.localeCompare(b.nombre, 'es'); }),
+    cerrados: todos.filter(function (p) { return p.estado === 'cerrado'; })
+      .sort(function (a, b) { return String(b.cerrado).localeCompare(String(a.cerrado)); }),
+  };
+}
+
+/** Crea un proyecto: carpeta + hoja "Gastos - <nombre>". */
+function crearProyecto(nombre) {
+  nombre = String(nombre || '').replace(/\s+/g, ' ').trim();
+  if (!nombre) throw new Error('Escribe un nombre para el proyecto.');
+  if (nombre.length > 80) throw new Error('El nombre es demasiado largo.');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const repetido = leerProyectos_().some(function (p) {
+      return p.estado !== 'cerrado' && normalizar_(p.nombre) === normalizar_(nombre);
+    });
+    if (repetido) throw new Error('Ya hay un proyecto activo con ese nombre.');
+
+    const carpeta = obtenerSubcarpeta_(obtenerCarpetaRaiz_(), limpiarNombre_(nombre));
+    const ss = SpreadsheetApp.create('Gastos - ' + nombre);
+    DriveApp.getFileById(ss.getId()).moveTo(carpeta);
+    const hoja = ss.getSheets()[0].setName(CONFIG.NOMBRE_PESTANA);
+    hoja.getRange(1, 1, 1, P_NCOLS).setValues([P_CABECERAS]).setFontWeight('bold').setBackground('#e8f0fe');
+    hoja.setFrozenRows(1);
+    hoja.getRange('A2:A').setNumberFormat('dd/mm/yyyy');
+    hoja.getRange('B2:D').setNumberFormat('@');
+    hoja.getRange('E2:E').setNumberFormat(FORMATO_EUROS);
+    [100, 70, 240, 160, 100].forEach(function (ancho, i) { hoja.setColumnWidth(i + 1, ancho); });
+    hoja.getRange(2, PCOL.CATEGORIA, hoja.getMaxRows() - 1, 1).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(obtenerCategorias_(), true).setAllowInvalid(true).build());
+
+    const p = {
+      id: ss.getId(),
+      nombre: nombre,
+      carpetaId: carpeta.getId(),
+      estado: 'abierto',
+      creado: new Date().toISOString(),
+      cerrado: null,
+      tickets: 0,
+      total: 0,
+    };
+    guardarProyecto_(p);
+    props_().setProperty('ULTIMO_PROYECTO', p.id);
+    return { proyecto: p.id, lista: listarProyectos() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Cierra un proyecto: calcula el total, crea la pestaña "Informe" en su hoja
+ * y un PDF del informe en su carpeta, y lo pasa al histórico.
+ */
+function cerrarProyecto(id) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const p = obtenerProyecto_(id);
+    if (p.estado === 'cerrado') throw new Error('Este proyecto ya está cerrado.');
+
+    const ss = SpreadsheetApp.openById(p.id);
+    const datos = leerTicketsProyecto_(ss);
+    const ahora = new Date();
+
+    crearPestanaInforme_(ss, p, datos, ahora);
+
+    // Si se había cerrado antes (y se reabrió), se sustituye el informe anterior.
+    if (p.informeId) {
+      try { DriveApp.getFileById(p.informeId).setTrashed(true); } catch (e) { /* ya no existe */ }
+    }
+    const pdf = carpetaProyecto_(p).createFile(crearInformePdf_(p, datos, ahora));
+
+    p.estado = 'cerrado';
+    p.cerrado = ahora.toISOString();
+    p.tickets = datos.tickets.length;
+    p.total = datos.total;
+    p.desde = datos.desde;
+    p.hasta = datos.hasta;
+    p.informeId = pdf.getId();
+    p.informeUrl = pdf.getUrl();
+    guardarProyecto_(p);
+    if (props_().getProperty('ULTIMO_PROYECTO') === id) props_().deleteProperty('ULTIMO_PROYECTO');
+
+    return {
+      nombre: p.nombre,
+      total: p.total,
+      tickets: p.tickets,
+      informeUrl: p.informeUrl,
+      hojaUrl: ss.getUrl(),
+      lista: listarProyectos(),
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Recupera un proyecto del histórico: vuelve a aparecer en el desplegable. */
+function reabrirProyecto(id) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const p = obtenerProyecto_(id);
+    const repetido = leerProyectos_().some(function (o) {
+      return o.id !== p.id && o.estado !== 'cerrado' && normalizar_(o.nombre) === normalizar_(p.nombre);
+    });
+    if (repetido) throw new Error('Ya hay un proyecto activo con el nombre «' + p.nombre + '».');
+    p.estado = 'abierto';
+    guardarProyecto_(p);
+    return listarProyectos();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function leerProyectos_() {
+  const todas = props_().getProperties();
+  return Object.keys(todas)
+    .filter(function (k) { return k.indexOf(PREFIJO_PROYECTO) === 0; })
+    .map(function (k) { try { return JSON.parse(todas[k]); } catch (e) { return null; } })
+    .filter(Boolean);
+}
+
+function obtenerProyecto_(id) {
+  const v = props_().getProperty(PREFIJO_PROYECTO + id);
+  if (!v) throw new Error('No encuentro ese proyecto.');
+  return JSON.parse(v);
+}
+
+function guardarProyecto_(p) {
+  props_().setProperty(PREFIJO_PROYECTO + p.id, JSON.stringify(p));
+}
+
+function carpetaProyecto_(p) {
+  try {
+    const c = DriveApp.getFolderById(p.carpetaId);
+    if (!c.isTrashed()) return c;
+  } catch (e) { /* se recrea */ }
+  const c = obtenerSubcarpeta_(obtenerCarpetaRaiz_(), limpiarNombre_(p.nombre));
+  p.carpetaId = c.getId();
+  guardarProyecto_(p);
+  return c;
+}
+
+function hojaProyecto_(p) {
+  let ss;
+  try {
+    ss = SpreadsheetApp.openById(p.id);
+  } catch (e) {
+    throw new Error('No encuentro la hoja del proyecto «' + p.nombre + '». ¿La has borrado?');
+  }
+  return ss.getSheetByName(CONFIG.NOMBRE_PESTANA) || ss.getSheets()[0];
+}
+
+/** Lee los tickets de la hoja del proyecto y calcula totales. */
+function leerTicketsProyecto_(ss) {
+  const hoja = ss.getSheetByName(CONFIG.NOMBRE_PESTANA) || ss.getSheets()[0];
+  const n = hoja.getLastRow() - 1;
+  const tz = Session.getScriptTimeZone();
+  const tickets = [];
+  if (n > 0) {
+    const valores = hoja.getRange(2, 1, n, P_NCOLS).getValues();
+    const enlaces = hoja.getRange(2, PCOL.COMERCIO, n, 1).getRichTextValues();
+    valores.forEach(function (v, i) {
+      const importe = Number(v[PCOL.IMPORTE - 1]);
+      if (!v[PCOL.COMERCIO - 1] && !importe) return;
+      const fecha = v[PCOL.FECHA - 1];
+      const hora = v[PCOL.HORA - 1];
+      tickets.push({
+        fecha: fecha instanceof Date ? fecha : null,
+        hora: hora instanceof Date ? Utilities.formatDate(hora, tz, 'HH:mm') : String(hora),
+        comercio: String(v[PCOL.COMERCIO - 1]),
+        categoria: String(v[PCOL.CATEGORIA - 1]) || 'Sin categoría',
+        importe: isNaN(importe) ? 0 : importe,
+        url: enlaces[i][0] ? enlaces[i][0].getLinkUrl() : null,
+      });
+    });
+  }
+  tickets.sort(function (a, b) { return (a.fecha ? a.fecha.getTime() : 0) - (b.fecha ? b.fecha.getTime() : 0); });
+
+  const porCat = {};
+  let total = 0;
+  tickets.forEach(function (t) {
+    total += t.importe;
+    porCat[t.categoria] = (porCat[t.categoria] || 0) + t.importe;
+  });
+  const fechas = tickets.filter(function (t) { return t.fecha; }).map(function (t) { return t.fecha; });
+  const fmt = function (d) { return Utilities.formatDate(d, tz, 'dd/MM/yyyy'); };
+  return {
+    tickets: tickets,
+    total: redondear_(total),
+    porCategoria: Object.keys(porCat).map(function (k) { return { nombre: k, total: redondear_(porCat[k]) }; })
+      .sort(function (a, b) { return b.total - a.total; }),
+    desde: fechas.length ? fmt(fechas[0]) : null,
+    hasta: fechas.length ? fmt(fechas[fechas.length - 1]) : null,
+    fmt: fmt,
+  };
+}
+
+/** Pestaña "Informe" con valores fijos (sin fórmulas): resumen + detalle. */
+function crearPestanaInforme_(ss, p, d, ahora) {
+  const anterior = ss.getSheetByName(NOMBRE_INFORME);
+  if (anterior) ss.deleteSheet(anterior);
+  const h = ss.insertSheet(NOMBRE_INFORME, 0);
+
+  h.getRange('A1').setValue('Informe de gastos').setFontSize(16).setFontWeight('bold');
+  h.getRange('A2').setValue(p.nombre).setFontSize(13).setFontWeight('bold').setFontColor('#3949ab');
+  h.getRange('A4:B7').setValues([
+    ['Periodo', d.desde ? d.desde + ' – ' + d.hasta : '—'],
+    ['Fecha de cierre', d.fmt(ahora)],
+    ['Nº de tickets', d.tickets.length],
+    ['TOTAL', d.total],
+  ]);
+  h.getRange('A4:A7').setFontWeight('bold');
+  h.getRange('B7').setNumberFormat(FORMATO_EUROS).setFontWeight('bold').setFontSize(13);
+  h.getRange('A7:B7').setBackground('#e8eaf6');
+
+  let fila = 9;
+  h.getRange(fila, 1, 1, 2).setValues([['Categoría', 'Total']]).setFontWeight('bold').setBackground('#e8f0fe');
+  fila++;
+  if (d.porCategoria.length) {
+    h.getRange(fila, 1, d.porCategoria.length, 2)
+      .setValues(d.porCategoria.map(function (c) { return [c.nombre, c.total]; }));
+    h.getRange(fila, 2, d.porCategoria.length, 1).setNumberFormat(FORMATO_EUROS);
+    fila += d.porCategoria.length;
+  }
+
+  fila += 1;
+  h.getRange(fila, 1).setValue('Detalle de tickets').setFontWeight('bold').setFontSize(12);
+  fila++;
+  h.getRange(fila, 1, 1, 5).setValues([['Fecha', 'Hora', 'Comercio', 'Categoría', 'Importe']])
+    .setFontWeight('bold').setBackground('#e8f0fe');
+  fila++;
+  if (d.tickets.length) {
+    const inicio = fila;
+    h.getRange(inicio, 1, d.tickets.length, 5).setValues(d.tickets.map(function (t) {
+      return [t.fecha || '', t.hora, t.comercio, t.categoria, t.importe];
+    }));
+    h.getRange(inicio, 1, d.tickets.length, 1).setNumberFormat('dd/mm/yyyy');
+    h.getRange(inicio, 2, d.tickets.length, 1).setNumberFormat('@');
+    h.getRange(inicio, 5, d.tickets.length, 1).setNumberFormat(FORMATO_EUROS);
+    const ricos = d.tickets.map(function (t) {
+      const b = SpreadsheetApp.newRichTextValue().setText(t.comercio || ' ');
+      if (t.url) b.setLinkUrl(t.url);
+      return [b.build()];
+    });
+    h.getRange(inicio, 3, d.tickets.length, 1).setRichTextValues(ricos);
+    fila += d.tickets.length;
+  }
+  h.getRange(fila, 4, 1, 2).setValues([['TOTAL', d.total]]).setFontWeight('bold').setBackground('#e8eaf6');
+  h.getRange(fila, 5).setNumberFormat(FORMATO_EUROS);
+
+  [110, 110, 240, 160, 110].forEach(function (ancho, i) { h.setColumnWidth(i + 1, ancho); });
+  ss.setActiveSheet(h);
+}
+
+/** PDF del informe para presentar (resumen, desglose y detalle con enlaces). */
+function crearInformePdf_(p, d, ahora) {
+  const titulo = 'Informe - ' + limpiarNombre_(p.nombre) + ' - ' +
+    Utilities.formatDate(ahora, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const doc = DocumentApp.create(titulo);
+  const docId = doc.getId();
+  const euros = function (n) { return n.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €'; };
+  try {
+    const cuerpo = doc.getBody();
+    cuerpo.setMarginTop(48).setMarginBottom(48).setMarginLeft(54).setMarginRight(54);
+
+    const cabecera = cuerpo.getParagraphs()[0];
+    cabecera.setText('Informe de gastos');
+    cabecera.setHeading(DocumentApp.ParagraphHeading.HEADING1);
+    cuerpo.appendParagraph(p.nombre).setHeading(DocumentApp.ParagraphHeading.HEADING2);
+
+    [
+      'Periodo: ' + (d.desde ? d.desde + ' – ' + d.hasta : '—'),
+      'Fecha de cierre: ' + d.fmt(ahora),
+      'Número de tickets: ' + d.tickets.length,
+    ].forEach(function (linea) { cuerpo.appendParagraph(linea); });
+
+    const total = cuerpo.appendParagraph('Total a cobrar: ' + euros(d.total));
+    total.setSpacingBefore(10);
+    total.setSpacingAfter(14);
+    total.editAsText().setBold(true).setFontSize(16);
+
+    if (d.porCategoria.length) {
+      cuerpo.appendParagraph('Desglose por categoría').setHeading(DocumentApp.ParagraphHeading.HEADING3);
+      const filasCat = [['Categoría', 'Total']].concat(d.porCategoria.map(function (c) { return [c.nombre, euros(c.total)]; }));
+      estilarTabla_(cuerpo.appendTable(filasCat), [300, 140], [1]);
+    }
+
+    cuerpo.appendParagraph('Detalle de tickets').setHeading(DocumentApp.ParagraphHeading.HEADING3);
+    if (d.tickets.length) {
+      const filas = [['Fecha', 'Comercio', 'Categoría', 'Importe']].concat(d.tickets.map(function (t) {
+        return [t.fecha ? d.fmt(t.fecha) : '', t.comercio || ' ', t.categoria, euros(t.importe)];
+      }));
+      filas.push(['', '', 'TOTAL', euros(d.total)]);
+      const tabla = cuerpo.appendTable(filas);
+      estilarTabla_(tabla, [72, 190, 110, 80], [3]);
+      d.tickets.forEach(function (t, i) {
+        if (t.url && t.comercio) tabla.getCell(i + 1, 1).editAsText().setLinkUrl(t.url);
+      });
+      tabla.getRow(filas.length - 1).editAsText().setBold(true);
+    } else {
+      cuerpo.appendParagraph('Este proyecto no tiene tickets.');
+    }
+
+    const pie = cuerpo.appendParagraph('Los comercios enlazan al PDF de cada ticket.   Firma: ____________________');
+    pie.setSpacingBefore(24);
+    pie.editAsText().setFontSize(9).setForegroundColor('#5f6368');
+
+    doc.saveAndClose();
+    return DriveApp.getFileById(docId).getAs(MimeType.PDF).setName(titulo + '.pdf');
+  } finally {
+    DriveApp.getFileById(docId).setTrashed(true);
+  }
+}
+
+function estilarTabla_(tabla, anchos, columnasDerecha) {
+  tabla.setBorderColor('#c5cae9');
+  anchos.forEach(function (a, i) { tabla.setColumnWidth(i, a); });
+  for (let f = 0; f < tabla.getNumRows(); f++) {
+    const fila = tabla.getRow(f);
+    for (let c = 0; c < fila.getNumCells(); c++) {
+      const celda = fila.getCell(c);
+      celda.setPaddingTop(4);
+      celda.setPaddingBottom(4);
+      celda.editAsText().setFontSize(10);
+      if (columnasDerecha.indexOf(c) !== -1) {
+        celda.getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+      }
+      if (f === 0) celda.setBackgroundColor('#e8eaf6');
+    }
+  }
+  tabla.getRow(0).editAsText().setBold(true);
 }
 
 /* ------------------------------------------------------------------ */
