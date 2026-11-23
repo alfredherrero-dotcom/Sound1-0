@@ -732,7 +732,25 @@
       google.script.run.withSuccessHandler(ok).withFailureHandler(ko)[funcion](...args);
     });
   }
-  const textoError = (e) => ((e && e.message) ? e.message : String(e)).replace(/^(Exception|Error):\s*/, '');
+  const esErrorDeRed = (e) => /NetworkError|HTTP 0|Failed to fetch|network|connexi|conexi/i.test(String((e && e.message) || e));
+  const textoError = (e) => esErrorDeRed(e)
+    ? 'Se ha cortado la conexión con Google. Tus datos siguen aquí: cuando tengas cobertura, pulsa otra vez. No se duplicará.'
+    : ((e && e.message) ? e.message : String(e)).replace(/^(Exception|Error):\s*/, '');
+
+  /** Igual que llamar(), pero reintenta sola si se corta la conexión. */
+  async function llamarConReintentos(alReintentar, funcion, ...args) {
+    const esperas = [1500, 4000, 8000];
+    for (let intento = 0; ; intento++) {
+      try {
+        return await llamar(funcion, ...args);
+      } catch (e) {
+        if (!esErrorDeRed(e) || intento >= esperas.length) throw e;
+        if (alReintentar) alReintentar(intento + 1, esperas.length);
+        await new Promise((ok) => setTimeout(ok, esperas[intento]));
+      }
+    }
+  }
+  const nuevoId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2));
   const euros = (n) => Number(n).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const normalizar = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -848,8 +866,8 @@
     sel.value = cat || '';
   }
 
-  /** Reduce la foto (máx. 2000 px) y la convierte a JPEG para que suba rápido. */
-  function prepararImagen(archivo, maxLado = 2000, calidad = 0.85) {
+  /** Reduce la foto (máx. 1600 px) y la convierte a JPEG para que suba rápido. */
+  function prepararImagen(archivo, maxLado = 1600, calidad = 0.82) {
     return new Promise((ok, ko) => {
       const url = URL.createObjectURL(archivo);
       const img = new Image();
@@ -888,11 +906,12 @@
     try {
       const dataUrl = await prepararImagen(archivo);
       $('vista').src = dataUrl;
-      imagenActual = { base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' };
+      imagenActual = { base64: dataUrl.split(',')[1], mimeType: 'image/jpeg', idCliente: nuevoId(), tempId: null };
 
       let r;
       try {
-        r = await llamar('analizarTicket', imagenActual.base64, imagenActual.mimeType);
+        r = await llamarConReintentos(null, 'analizarTicket', imagenActual.base64, imagenActual.mimeType);
+        imagenActual.tempId = r.tempId || null;
       } catch (e) {
         const ahora = new Date();
         r = { fecha: iso(ahora), hora: ahora.toTimeString().slice(0, 5), comercio: '', importe: '', categoria: '',
@@ -938,8 +957,12 @@
     boton.disabled = true;
     ponerTextoBoton(boton, 'Guardando…');
     try {
-      const r = await llamar('guardarTicket', {
-        imagenBase64: imagenActual.base64,
+      const reintento = (n, total) => ponerTextoBoton(boton, `Sin conexión, reintentando (${n}/${total})…`);
+      const r = await llamarConReintentos(reintento, 'guardarTicket', {
+        idCliente: imagenActual.idCliente,
+        // Si la foto ya está en Drive (se subió al leer el ticket), solo se manda su id.
+        tempId: imagenActual.tempId,
+        imagenBase64: imagenActual.tempId ? '' : imagenActual.base64,
         mimeType: imagenActual.mimeType,
         fecha: $('fecha').value,
         hora: $('hora').value.slice(0, 5),

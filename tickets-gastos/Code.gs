@@ -126,6 +126,15 @@ function analizarTicket(imagenBase64, mimeType) {
   const blob = Utilities.newBlob(
     Utilities.base64Decode(imagenBase64), mimeType || 'image/jpeg', 'ticket.jpg');
 
+  // La foto se guarda ya en Drive: al guardar el ticket no hace falta volver a subirla.
+  let tempId = null;
+  try {
+    limpiarTemporales_();
+    tempId = carpetaTemporal_().createFile(blob.copyBlob().setName('ticket-' + Date.now() + '.jpg')).getId();
+  } catch (e) {
+    console.warn('No se pudo guardar la foto temporal: ' + e);
+  }
+
   let texto = '';
   let docId = null;
   try {
@@ -153,6 +162,7 @@ function analizarTicket(imagenBase64, mimeType) {
     comercio: comercio,
     importe: encontrado.importe != null ? encontrado.importe : '',
     categoria: comercio ? (leerRecordados_()[normalizar_(comercio)] || '') : '',
+    tempId: tempId,
     detectado: {
       fecha: !!encontrado.fecha,
       hora: !!encontrado.hora,
@@ -164,11 +174,32 @@ function analizarTicket(imagenBase64, mimeType) {
 
 /**
  * Guarda el ticket: PDF + foto original en Drive y fila en la hoja.
- * @param {{imagenBase64:string, mimeType:string, fecha:string, hora:string,
- *          comercio:string, categoria:string, proyectoId:string,
- *          importe:(number|string)}} datos
+ * Es seguro repetir la llamada con el mismo idCliente (por ejemplo, si se
+ * cortó la conexión): no se duplica, se devuelve el resultado anterior.
+ * @param {{idCliente:string, tempId:string, imagenBase64:string, mimeType:string,
+ *          fecha:string, hora:string, comercio:string, categoria:string,
+ *          proyectoId:string, importe:(number|string)}} datos
  */
 function guardarTicket(datos) {
+  const idCliente = String(datos.idCliente || '').replace(/[^\w-]/g, '').slice(0, 64);
+  const cache = CacheService.getScriptCache();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+  try {
+    if (idCliente) {
+      const previo = cache.get('ticket_' + idCliente);
+      if (previo) return JSON.parse(previo);
+    }
+    const r = guardarTicketSinBloqueo_(datos);
+    if (idCliente) cache.put('ticket_' + idCliente, JSON.stringify(r), 21600);
+    if (datos.tempId) borrarTemporal_(datos.tempId);
+    return r;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function guardarTicketSinBloqueo_(datos) {
   const fecha = String(datos.fecha || '');
   const hora = String(datos.hora || '');
   const comercio = String(datos.comercio || '').trim();
@@ -185,7 +216,7 @@ function guardarTicket(datos) {
   if (!comercio) throw new Error('Falta el nombre del comercio.');
   if (!categoria) throw new Error('Elige una categoría.');
   if (importe == null || isNaN(importe)) throw new Error('El importe no es válido.');
-  if (!datos.imagenBase64) throw new Error('Falta la foto del ticket.');
+  if (!datos.imagenBase64 && !datos.tempId) throw new Error('Falta la foto del ticket.');
 
   const anio = mFecha[1];
   const mes = Number(mFecha[2]);
@@ -208,10 +239,18 @@ function guardarTicket(datos) {
   const nombreBase = fecha + ' ' + hora.replace(':', 'h') + ' - ' +
     limpiarNombre_(comercio) + ' - ' + importeTexto;
 
-  const mime = datos.mimeType || 'image/jpeg';
-  const extension = mime === 'image/png' ? '.png' : '.jpg';
-  const imagen = Utilities.newBlob(
-    Utilities.base64Decode(datos.imagenBase64), mime, nombreBase + extension);
+  let imagen;
+  if (datos.tempId) {
+    try {
+      imagen = DriveApp.getFileById(datos.tempId).getBlob();
+    } catch (e) {
+      if (!datos.imagenBase64) throw new Error('No encuentro la foto del ticket. Vuelve a hacerla, por favor.');
+    }
+  }
+  if (!imagen) {
+    imagen = Utilities.newBlob(Utilities.base64Decode(datos.imagenBase64), datos.mimeType || 'image/jpeg');
+  }
+  imagen.setName(nombreBase + (imagen.getContentType() === 'image/png' ? '.png' : '.jpg'));
 
   const info = [
     'Fecha: ' + pad2_(dia) + '/' + pad2_(mes) + '/' + anio + '   Hora: ' + hora,
@@ -224,8 +263,6 @@ function guardarTicket(datos) {
   // para no dejar archivos sueltos.
   const blobPdf = crearPdf_(imagen, nombreBase, info);
   const creados = [];
-  const lock = LockService.getScriptLock();
-  lock.waitLock(30000);
   const filasEscritas = [];
   try {
     // Se abren las hojas antes de crear nada, por si alguna no existe.
@@ -278,8 +315,20 @@ function guardarTicket(datos) {
     });
     creados.forEach(function (f) { try { f.setTrashed(true); } catch (x) { /* ignorar */ } });
     throw e;
-  } finally {
-    lock.releaseLock();
+  }
+}
+
+function carpetaTemporal_() {
+  return obtenerSubcarpeta_(obtenerCarpetaRaiz_(), 'Temporal (se vacía sola)');
+}
+
+/** Borra las fotos temporales de más de un día (tickets que no se llegaron a guardar). */
+function limpiarTemporales_() {
+  const limite = Date.now() - 24 * 3600 * 1000;
+  const it = carpetaTemporal_().getFiles();
+  while (it.hasNext()) {
+    const f = it.next();
+    if (f.getDateCreated().getTime() < limite) borrarTemporal_(f.getId());
   }
 }
 
