@@ -245,6 +245,7 @@
     .historico .nombre { flex: 1 1 0; }
     .historico .enlaces { flex-basis: 100%; margin-top: 4px; display: grid;
       grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .historico .enlaces .boton:last-child:nth-child(odd) { grid-column: 1 / -1; }
     .historico .meta, .aviso-revisar { overflow-wrap: anywhere; }
     .historico .enlaces .boton { padding-inline: 8px; }
 
@@ -267,6 +268,25 @@
     .firmante-dlg img { display: block; max-width: 160px; max-height: 54px; margin: 8px 0 0 34px; background: #fff; border-radius: 6px; padding: 2px 6px; }
     .firmante-dlg .aviso-revisar { margin: 0; flex-wrap: wrap; }
     .firmante-dlg .aviso-revisar span { flex: 1 1 180px; }
+
+    /* ============ Borrar / recuperar ============ */
+    .boton.peligro { background: var(--error); border-color: var(--error); color: var(--sobre-marca); }
+    .boton.peligro-suave { color: var(--error); border-color: color-mix(in oklab, var(--error) 45%, var(--borde)); }
+    .boton-icono.papelera { color: var(--error); }
+    @media (hover: hover) { .boton-icono.papelera:hover { background: var(--fondo-error); } }
+    .dlg-icono.peligro { background: var(--fondo-error); color: var(--error); }
+    .boton-nombre { font: inherit; font-weight: 600; color: var(--marca); background: none; border: 0; padding: 0;
+      cursor: pointer; text-align: left; text-decoration: underline; text-underline-offset: 3px; max-width: 100%;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+    .ficha-resumen { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 4px 0 8px; }
+    .ficha-lista { max-height: 46vh; overflow: auto; margin: 0 -4px; padding: 0 4px; }
+    .ficha-lista li .derecha .boton-icono { width: 44px; height: 44px; }
+    details.borrados { margin-top: 12px; border-top: 1px solid var(--borde); padding-top: 10px; }
+    details.borrados summary { cursor: pointer; font-weight: 600; color: var(--suave); min-height: 44px; display: flex; align-items: center; }
+    .tachado { text-decoration: line-through; color: var(--suave); }
+    .ficha-acciones { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+    .ficha-acciones .boton { margin: 0; }
+    .ficha-acciones .ancho { grid-column: 1 / -1; }
 
     /* ============ Diálogos ============ */
     dialog { border: 0; padding: 0; border-radius: 22px; background: var(--sup); color: var(--texto);
@@ -335,6 +355,8 @@
   <symbol id="i-cerrado" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/><path d="M12 15v2"/></symbol>
   <symbol id="i-mas" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-archivo" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/></symbol>
+  <symbol id="i-papelera" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12.5A1.5 1.5 0 0 0 8.5 21h7a1.5 1.5 0 0 0 1.5-1.5L18 7M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7"/></symbol>
+  <symbol id="i-recuperar" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/></symbol>
   <symbol id="i-correo" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></symbol>
   <symbol id="i-pdf" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
 </svg>
@@ -533,6 +555,12 @@
       <ul id="lista-cerrados" class="lista historico"></ul>
       <p id="sin-cerrados" class="vacio oculto">Todavía no has cerrado ningún proyecto.</p>
     </section>
+
+    <section id="tarjeta-papelera" class="tarjeta oculto" aria-labelledby="t-papelera">
+      <h2 id="t-papelera">Papelera</h2>
+      <p class="nota" style="margin:0 0 12px">Proyectos borrados. Se pueden recuperar mientras sigan en la papelera de Drive (30 días).</p>
+      <ul id="lista-borrados" class="lista historico"></ul>
+    </section>
   </div>
 
   <!-- ============ AJUSTES ============ -->
@@ -712,6 +740,48 @@
       <button id="dlg-enviar-btn" class="boton primario" value="enviar">
         <svg class="icono" aria-hidden="true"><use href="#i-correo"/></svg><span>Enviar</span>
       </button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-confirmar" aria-labelledby="dlg-confirmar-t" aria-describedby="dlg-confirmar-texto">
+  <form id="dlg-confirmar-form" method="dialog" class="dlg-cuerpo">
+    <div class="dlg-icono peligro" aria-hidden="true"><svg class="icono"><use href="#i-papelera"/></svg></div>
+    <h2 id="dlg-confirmar-t"></h2>
+    <p id="dlg-confirmar-texto"></p>
+    <div class="dlg-acciones">
+      <button class="boton texto" value="no" autofocus>Cancelar</button>
+      <button id="dlg-confirmar-si" class="boton peligro" value="si"></button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-proyecto" aria-labelledby="dlg-proyecto-t">
+  <form method="dialog" class="dlg-cuerpo">
+    <h2 id="dlg-proyecto-t" tabindex="-1"></h2>
+    <div class="ficha-resumen">
+      <span id="ficha-num" class="etiqueta"></span>
+      <span id="ficha-total" class="importe"></span>
+    </div>
+    <div id="ficha-estado" class="aviso-revisar oculto" role="status" style="margin:0 0 8px"></div>
+    <div id="ficha-error" class="error-general oculto" role="alert" style="margin:0 0 8px"></div>
+    <div id="ficha-cargando" class="estado" role="status"><div class="girando" aria-hidden="true"></div> Cargando tickets…</div>
+    <div class="ficha-lista">
+      <ul id="ficha-tickets" class="lista"></ul>
+      <p id="ficha-vacio" class="vacio oculto">Este proyecto todavía no tiene tickets.</p>
+      <details id="ficha-borrados" class="borrados oculto">
+        <summary id="ficha-borrados-t">Tickets borrados</summary>
+        <ul id="ficha-lista-borrados" class="lista"></ul>
+      </details>
+    </div>
+    <div class="ficha-acciones">
+      <a id="ficha-hoja" class="boton" target="_blank" rel="noopener">
+        <svg class="icono" aria-hidden="true"><use href="#i-hoja"/></svg> Abrir hoja
+      </a>
+      <button id="ficha-borrar-proyecto" class="boton peligro-suave" type="button">
+        <svg class="icono" aria-hidden="true"><use href="#i-papelera"/></svg> Borrar proyecto
+      </button>
+      <button class="boton texto ancho" value="cerrar">Cerrar</button>
     </div>
   </form>
 </dialog>
@@ -1089,12 +1159,15 @@
       const li = document.createElement('li');
       const nombre = document.createElement('div');
       nombre.className = 'nombre';
-      const enlace = document.createElement('a');
-      enlace.href = p.hojaUrl; enlace.target = '_blank'; enlace.rel = 'noopener';
+      const enlace = document.createElement('button');
+      enlace.type = 'button';
+      enlace.className = 'boton-nombre';
       enlace.textContent = p.nombre;
+      enlace.setAttribute('aria-label', `${p.nombre}: ver y gestionar sus tickets`);
+      enlace.addEventListener('click', () => abrirFicha(p.id));
       const meta = document.createElement('div');
       meta.className = 'meta';
-      meta.textContent = textoTickets(p.tickets);
+      meta.textContent = textoTickets(p.tickets) + ' · toca para ver los tickets';
       nombre.append(enlace, meta);
       const derecha = document.createElement('div');
       derecha.className = 'derecha';
@@ -1157,11 +1230,78 @@
       reabrir.setAttribute('aria-label', `Reabrir ${p.nombre}`);
       reabrir.addEventListener('click', () => reabrirProyecto(p, reabrir));
       acciones.append(reabrir);
+      const borrar = document.createElement('button');
+      borrar.type = 'button';
+      borrar.className = 'boton peque peligro-suave';
+      borrar.innerHTML = '<svg class="icono" aria-hidden="true"><use href="#i-papelera"/></svg>';
+      borrar.append(' Borrar');
+      borrar.setAttribute('aria-label', `Borrar el proyecto ${p.nombre}`);
+      borrar.addEventListener('click', () => pedirBorrarProyecto(p));
+      acciones.append(borrar);
 
       li.append(nombre, imp, acciones);
       ul.appendChild(li);
     });
     mostrar($('sin-cerrados'), proyectos.cerrados.length === 0);
+    pintarPapelera();
+  }
+
+  function pintarPapelera() {
+    const borrados = proyectos.borrados || [];
+    const ul = $('lista-borrados');
+    ul.innerHTML = '';
+    borrados.forEach((p) => {
+      const li = document.createElement('li');
+      const nombre = document.createElement('div');
+      nombre.className = 'nombre';
+      const titulo = document.createElement('span');
+      titulo.className = 'tachado';
+      titulo.textContent = p.nombre;
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = [`Borrado el ${fechaCorta(p.borrado)}`, textoTickets(p.tickets),
+        p.recuperable ? '' : 'Ya no está en la papelera de Drive'].filter(Boolean).join(' · ');
+      nombre.append(titulo, meta);
+      const imp = document.createElement('span');
+      imp.className = 'importe tachado';
+      imp.textContent = euros(p.total);
+      const acciones = document.createElement('div');
+      acciones.className = 'enlaces';
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'boton peque';
+      if (p.recuperable) {
+        b.innerHTML = '<svg class="icono" aria-hidden="true"><use href="#i-recuperar"/></svg>';
+        b.append(' Recuperar');
+        b.setAttribute('aria-label', `Recuperar el proyecto ${p.nombre}`);
+        b.addEventListener('click', () => accionProyecto('recuperarProyecto', p, b, `«${p.nombre}» recuperado.`));
+      } else {
+        b.append('Quitar de la lista');
+        b.setAttribute('aria-label', `Quitar ${p.nombre} de la papelera`);
+        b.addEventListener('click', () => accionProyecto('olvidarProyecto', p, b, `«${p.nombre}» quitado de la lista.`));
+      }
+      acciones.append(b);
+      li.append(nombre, imp, acciones);
+      ul.appendChild(li);
+    });
+    mostrar($('tarjeta-papelera'), borrados.length > 0);
+  }
+
+  async function accionProyecto(funcion, p, boton, mensaje) {
+    mostrar($('h-estado'), false);
+    mostrar($('h-error'), false);
+    boton.disabled = true;
+    try {
+      ponerProyectos(await llamar(funcion, p.id));
+      $('h-estado').textContent = mensaje;
+      mostrar($('h-estado'), true);
+      $('t-historico').setAttribute('tabindex', '-1');
+      $('t-historico').focus();
+      cargarResumen();
+    } catch (e) {
+      boton.disabled = false;
+      mostrarError($('h-error'), e);
+    }
   }
 
   async function cargarHistorico() {
@@ -1288,6 +1428,161 @@
       cerrando = false;
       mostrar($('dlg-cerrar-trabajando'), false);
     }
+  });
+
+  /* Confirmación genérica (devuelve true si el usuario acepta) */
+  const dlgConfirmar = $('dlg-confirmar');
+  function confirmar({ titulo, texto, boton }) {
+    $('dlg-confirmar-t').textContent = titulo;
+    $('dlg-confirmar-texto').textContent = texto;
+    $('dlg-confirmar-si').textContent = boton;
+    dlgConfirmar.returnValue = '';
+    dlgConfirmar.showModal();
+    return new Promise((ok) => {
+      dlgConfirmar.addEventListener('close', () => {
+        const si = dlgConfirmar.returnValue === 'si';
+        dlgConfirmar.returnValue = '';
+        ok(si);
+      }, { once: true });
+    });
+  }
+
+  async function pedirBorrarProyecto(p) {
+    const si = await confirmar({
+      titulo: `¿Borrar «${p.nombre}»?`,
+      texto: `Se moverá a la papelera de Drive la carpeta del proyecto con su hoja, los PDF y las fotos ` +
+        `(${textoTickets(p.tickets)}, ${euros(p.total)}). Dejará de contar en los totales. ` +
+        'Podrás recuperarlo durante 30 días desde Histórico → Papelera.',
+      boton: 'Sí, borrar proyecto',
+    });
+    if (!si) return false;
+    try {
+      ponerProyectos(await llamar('borrarProyecto', p.id));
+      cargarResumen();
+      anunciador.textContent = `Proyecto ${p.nombre} borrado.`;
+      return true;
+    } catch (e) {
+      mostrarError(!$('vista-historico').classList.contains('oculto') ? $('h-error') : $('ficha-error'), e);
+      return false;
+    }
+  }
+
+  /* Ficha de proyecto: lista de tickets, borrar y recuperar */
+  const dlgProyecto = $('dlg-proyecto');
+  let fichaId = null;
+  dlgProyecto.addEventListener('close', () => { dlgProyecto.returnValue = ''; });
+
+  async function abrirFicha(id) {
+    const p = proyectos.activos.find((x) => x.id === id);
+    if (!p) return;
+    fichaId = id;
+    $('dlg-proyecto-t').textContent = p.nombre;
+    $('ficha-num').textContent = textoTickets(p.tickets);
+    $('ficha-total').textContent = euros(p.total);
+    $('ficha-hoja').href = p.hojaUrl;
+    ['ficha-estado', 'ficha-error', 'ficha-vacio', 'ficha-borrados'].forEach((x) => mostrar($(x), false));
+    $('ficha-tickets').innerHTML = '';
+    mostrar($('ficha-cargando'), true);
+    dlgProyecto.showModal();
+    try {
+      pintarFicha(await llamar('listarTicketsProyecto', id));
+    } catch (e) {
+      mostrarError($('ficha-error'), e);
+    } finally {
+      mostrar($('ficha-cargando'), false);
+    }
+  }
+
+  function filaTicket(t, borrado) {
+    const li = document.createElement('li');
+    const nombre = document.createElement('div');
+    nombre.className = 'nombre';
+    const titulo = document.createElement('span');
+    titulo.textContent = t.comercio;
+    if (borrado) titulo.className = 'tachado';
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = [`${t.fecha} · ${t.hora}`, t.categoria, borrado && t.borrado ? `borrado el ${t.borrado}` : '']
+      .filter(Boolean).join(' · ');
+    nombre.append(titulo, meta);
+    const derecha = document.createElement('div');
+    derecha.className = 'derecha';
+    const imp = document.createElement('span');
+    imp.className = 'importe' + (borrado ? ' tachado' : '');
+    imp.textContent = euros(t.importe);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'boton-icono' + (borrado ? '' : ' papelera');
+    b.innerHTML = `<svg class="icono" aria-hidden="true"><use href="#${borrado ? 'i-recuperar' : 'i-papelera'}"/></svg>`;
+    b.title = borrado ? 'Recuperar ticket' : 'Borrar ticket';
+    b.setAttribute('aria-label', `${borrado ? 'Recuperar' : 'Borrar'} el ticket de ${t.comercio}, ${t.fecha}, ${euros(t.importe)}`);
+    b.addEventListener('click', () => (borrado ? recuperarTicketUI(t, b) : borrarTicketUI(t, b)));
+    derecha.append(imp, b);
+    li.append(nombre, derecha);
+    return li;
+  }
+
+  function pintarFicha(d) {
+    $('ficha-num').textContent = textoTickets(d.proyecto.tickets);
+    $('ficha-total').textContent = euros(d.proyecto.total);
+    const ul = $('ficha-tickets');
+    ul.innerHTML = '';
+    d.tickets.forEach((t) => ul.appendChild(filaTicket(t, false)));
+    mostrar($('ficha-vacio'), d.tickets.length === 0);
+    const ub = $('ficha-lista-borrados');
+    ub.innerHTML = '';
+    d.borrados.forEach((t) => ub.appendChild(filaTicket(t, true)));
+    $('ficha-borrados-t').textContent = `Tickets borrados (${d.borrados.length})`;
+    mostrar($('ficha-borrados'), d.borrados.length > 0);
+  }
+
+  function avisoFicha(texto) {
+    $('ficha-estado').textContent = texto;
+    mostrar($('ficha-estado'), true);
+    anunciador.textContent = texto;
+  }
+
+  async function borrarTicketUI(t, boton) {
+    const si = await confirmar({
+      titulo: '¿Borrar este ticket?',
+      texto: `${t.comercio} · ${t.fecha} · ${euros(t.importe)}. Se quitará de la hoja del proyecto y de los totales, ` +
+        'y su PDF y su foto irán a la papelera de Drive. Podrás recuperarlo en «Tickets borrados».',
+      boton: 'Sí, borrar ticket',
+    });
+    if (!si) return;
+    mostrar($('ficha-error'), false);
+    boton.disabled = true;
+    try {
+      const r = await llamar('borrarTicket', fichaId, t.id);
+      pintarFicha(r.detalle);
+      ponerProyectos(r.lista);
+      avisoFicha(`Ticket de ${t.comercio} borrado.`);
+      cargarResumen();
+    } catch (e) {
+      boton.disabled = false;
+      mostrarError($('ficha-error'), e);
+    }
+  }
+
+  async function recuperarTicketUI(t, boton) {
+    mostrar($('ficha-error'), false);
+    boton.disabled = true;
+    try {
+      const r = await llamar('recuperarTicket', fichaId, t.id);
+      pintarFicha(r.detalle);
+      ponerProyectos(r.lista);
+      avisoFicha(`Ticket de ${t.comercio} recuperado.`);
+      cargarResumen();
+    } catch (e) {
+      boton.disabled = false;
+      mostrarError($('ficha-error'), e);
+    }
+  }
+
+  $('ficha-borrar-proyecto').addEventListener('click', async () => {
+    const p = proyectos.activos.find((x) => x.id === fichaId);
+    if (!p) return;
+    if (await pedirBorrarProyecto(p)) dlgProyecto.close();
   });
 
   /* Diálogo: enviar el informe por correo */

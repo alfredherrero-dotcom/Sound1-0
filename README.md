@@ -30,6 +30,14 @@ Una app web para el móvil que guarda los tickets de gastos en tu Google Drive:
 - **Histórico**: lista los proyectos cerrados con su total, el informe y la hoja. Con **Reabrir** vuelve al desplegable; si lo cierras otra vez, el informe se rehace.
 - Además, todos los tickets se apuntan solos en el **Registro general (no tocar)**, en la carpeta principal. No aparece en la app: lo usan los Totales y sirve de copia de seguridad.
 
+### 🗑️ Borrar y recuperar
+- **Borrar un ticket**: toca el nombre de un proyecto activo para ver sus tickets y pulsa la papelera del ticket. Tras confirmar:
+  - el ticket sale de la hoja del proyecto (pasa a la pestaña *Tickets borrados*), del total del proyecto y de los Totales,
+  - su PDF y su foto van a la papelera de Drive.
+
+  En «Tickets borrados» se puede **recuperar** mientras Drive lo conserve (30 días). Para tocar tickets de un proyecto cerrado, primero hay que reabrirlo.
+- **Borrar un proyecto**: desde su ficha (proyectos activos) o con «Borrar» en Histórico (cerrados). Tras confirmar, su carpeta entera (hoja, PDF, fotos e informe) va a la papelera de Drive y deja de contar en los totales. En **Histórico → Papelera** aparece tachado con el botón **Recuperar**. Si Drive ya lo ha eliminado definitivamente, se puede quitar de la lista.
+
 ### 📊 Totales
 - En la app, pestaña **Totales**: eliges el periodo (este mes, mes pasado, trimestre, año o fechas a mano) y el proyecto (todos, uno concreto o "sin proyecto"). Ves el total, el número de tickets y el desglose por categoría y por proyecto.
 - En la hoja de cálculo, pestaña **Resumen**: cambias *Desde*, *Hasta* y *Proyecto* (las celdas amarillas) y se recalculan el total y los desgloses.

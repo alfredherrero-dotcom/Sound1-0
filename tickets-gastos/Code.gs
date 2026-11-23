@@ -25,7 +25,7 @@ const CONFIG = {
     'Material', 'Teléfono e internet', 'Otros'],
 };
 
-const COL = { FECHA: 1, HORA: 2, COMERCIO: 3, CATEGORIA: 4, PROYECTO: 5, IMPORTE: 6 };
+const COL = { FECHA: 1, HORA: 2, COMERCIO: 3, CATEGORIA: 4, PROYECTO: 5, IMPORTE: 6, ESTADO: 7 };
 const NCOLS = 6;
 const CABECERAS = ['Fecha', 'Hora', 'Comercio', 'Categoría', 'Proyecto', 'Importe'];
 const MAX_RECORDADOS = 100; // comercios cuya categoría se recuerda
@@ -71,7 +71,9 @@ function obtenerResumen() {
   if (ultimaFila > 1) {
     const n = ultimaFila - 1;
     const hoy = new Date();
-    hoja.getRange(2, 1, n, NCOLS).getValues().forEach(function (v) {
+    const todas = hoja.getRange(2, 1, n, COL.ESTADO).getValues();
+    todas.forEach(function (v) {
+      if (String(v[COL.ESTADO - 1]).trim()) return; // borrado
       const p = String(v[COL.PROYECTO - 1]).trim();
       if (p) proyectos[p] = true;
       const f = v[COL.FECHA - 1];
@@ -84,12 +86,10 @@ function obtenerResumen() {
     });
     mes.total = redondear_(mes.total);
 
-    const desde = Math.max(2, ultimaFila - 4);
-    const k = ultimaFila - desde + 1;
-    const valores = hoja.getRange(desde, 1, k, NCOLS).getValues();
-    const enlaces = hoja.getRange(desde, COL.COMERCIO, k, 1).getRichTextValues();
-    for (let i = valores.length - 1; i >= 0; i--) {
-      const v = valores[i];
+    for (let i = todas.length - 1; i >= 0 && ultimos.length < 5; i--) {
+      const v = todas[i];
+      if (String(v[COL.ESTADO - 1]).trim() || !v[COL.COMERCIO - 1]) continue;
+      const enlace = hoja.getRange(i + 2, COL.COMERCIO).getRichTextValue();
       ultimos.push({
         fecha: v[0] instanceof Date ? Utilities.formatDate(v[0], tz, 'dd/MM/yyyy') : String(v[0]),
         hora: v[1] instanceof Date ? Utilities.formatDate(v[1], tz, 'HH:mm') : String(v[1]),
@@ -97,7 +97,7 @@ function obtenerResumen() {
         categoria: String(v[3]),
         proyecto: String(v[4]),
         importe: Number(v[5]) || 0,
-        url: enlaces[i][0] ? enlaces[i][0].getLinkUrl() : null,
+        url: enlace ? enlace.getLinkUrl() : null,
       });
     }
   }
@@ -208,6 +208,7 @@ function guardarTicketSinBloqueo_(datos) {
   const proyectoId = String(datos.proyectoId || '').trim();
   const p = proyectoId ? obtenerProyecto_(proyectoId) : null;
   if (p && p.estado === 'cerrado') throw new Error('El proyecto «' + p.nombre + '» está cerrado. Reábrelo desde Histórico.');
+  if (p && p.estado === 'borrado') throw new Error('El proyecto «' + p.nombre + '» está borrado.');
   const proyecto = p ? p.nombre : '';
 
   const mFecha = fecha.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -352,7 +353,8 @@ function obtenerTotales(desde, hasta, proyecto) {
 
   const porCat = {};
   const porPro = {};
-  hoja.getRange(2, 1, n, NCOLS).getValues().forEach(function (v) {
+  hoja.getRange(2, 1, n, COL.ESTADO).getValues().forEach(function (v) {
+    if (String(v[COL.ESTADO - 1]).trim()) return; // ticket o proyecto borrado
     const fecha = v[COL.FECHA - 1];
     const importe = Number(v[COL.IMPORTE - 1]);
     if (!(fecha instanceof Date) || isNaN(importe)) return;
@@ -406,13 +408,22 @@ function listarProyectos() {
       hasta: p.hasta || null,
       enviado: p.enviado || null,
       enviadoA: p.enviadoA || null,
+      borrado: p.borrado || null,
     };
   });
   return {
-    activos: todos.filter(function (p) { return p.estado !== 'cerrado'; })
+    activos: todos.filter(function (p) { return p.estado === 'abierto'; })
       .sort(function (a, b) { return a.nombre.localeCompare(b.nombre, 'es'); }),
     cerrados: todos.filter(function (p) { return p.estado === 'cerrado'; })
       .sort(function (a, b) { return String(b.cerrado).localeCompare(String(a.cerrado)); }),
+    borrados: todos.filter(function (p) { return p.estado === 'borrado'; })
+      .sort(function (a, b) { return String(b.borrado).localeCompare(String(a.borrado)); })
+      .map(function (p) {
+        let recuperable = false;
+        try { recuperable = DriveApp.getFolderById(leerCarpetaId_(p.id)).isTrashed(); } catch (e) { /* vaciado */ }
+        p.recuperable = recuperable;
+        return p;
+      }),
   };
 }
 
@@ -426,7 +437,7 @@ function crearProyecto(nombre) {
   lock.waitLock(30000);
   try {
     const repetido = leerProyectos_().some(function (p) {
-      return p.estado !== 'cerrado' && normalizar_(p.nombre) === normalizar_(nombre);
+      return p.estado === 'abierto' && normalizar_(p.nombre) === normalizar_(nombre);
     });
     if (repetido) throw new Error('Ya hay un proyecto activo con ese nombre.');
 
@@ -516,8 +527,9 @@ function reabrirProyecto(id) {
   lock.waitLock(30000);
   try {
     const p = obtenerProyecto_(id);
+    if (p.estado !== 'cerrado') throw new Error('Solo se pueden reabrir proyectos cerrados.');
     const repetido = leerProyectos_().some(function (o) {
-      return o.id !== p.id && o.estado !== 'cerrado' && normalizar_(o.nombre) === normalizar_(p.nombre);
+      return o.id !== p.id && o.estado === 'abierto' && normalizar_(o.nombre) === normalizar_(p.nombre);
     });
     if (repetido) throw new Error('Ya hay un proyecto activo con el nombre «' + p.nombre + '».');
     p.estado = 'abierto';
@@ -526,6 +538,234 @@ function reabrirProyecto(id) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/* ---------------- Borrar y recuperar ---------------- */
+
+const PESTANA_BORRADOS = 'Tickets borrados';
+
+function leerCarpetaId_(id) { return obtenerProyecto_(id).carpetaId; }
+
+/** Tickets de un proyecto (activos y borrados), para la lista de la app. */
+function listarTicketsProyecto(id) {
+  const p = obtenerProyecto_(id);
+  const ss = SpreadsheetApp.openById(p.id);
+  const tz = Session.getScriptTimeZone();
+  const leer = function (hoja, conFechaBorrado) {
+    if (!hoja || hoja.getLastRow() < 2) return [];
+    const n = hoja.getLastRow() - 1;
+    const valores = hoja.getRange(2, 1, n, P_NCOLS + 1).getValues();
+    const enlaces = hoja.getRange(2, PCOL.COMERCIO, n, 1).getRichTextValues();
+    const lista = [];
+    valores.forEach(function (v, i) {
+      const url = enlaces[i][0] ? enlaces[i][0].getLinkUrl() : null;
+      const idTicket = extraerIdArchivo_(url);
+      if (!idTicket) return;
+      lista.push({
+        id: idTicket,
+        fecha: v[0] instanceof Date ? Utilities.formatDate(v[0], tz, 'dd/MM/yyyy') : String(v[0]),
+        hora: v[1] instanceof Date ? Utilities.formatDate(v[1], tz, 'HH:mm') : String(v[1]),
+        comercio: String(v[2]),
+        categoria: String(v[3]),
+        importe: Number(v[4]) || 0,
+        url: url,
+        borrado: conFechaBorrado && v[5] instanceof Date ? Utilities.formatDate(v[5], tz, 'dd/MM/yyyy') : null,
+      });
+    });
+    return lista.reverse();
+  };
+  return {
+    proyecto: { id: p.id, nombre: p.nombre, estado: p.estado, tickets: p.tickets || 0, total: p.total || 0,
+      hojaUrl: 'https://docs.google.com/spreadsheets/d/' + p.id + '/edit' },
+    tickets: leer(ss.getSheetByName(CONFIG.NOMBRE_PESTANA) || ss.getSheets()[0], false),
+    borrados: leer(ss.getSheetByName(PESTANA_BORRADOS), true),
+  };
+}
+
+/** Busca la fila de un ticket (por el id de su PDF) en una hoja. */
+function filaDeTicket_(hoja, col, idTicket) {
+  if (!hoja || hoja.getLastRow() < 2) return -1;
+  const enlaces = hoja.getRange(2, col, hoja.getLastRow() - 1, 1).getRichTextValues();
+  for (let i = 0; i < enlaces.length; i++) {
+    const url = enlaces[i][0] ? enlaces[i][0].getLinkUrl() : null;
+    if (url && extraerIdArchivo_(url) === idTicket) return i + 2;
+  }
+  return -1;
+}
+
+/** Mueve una fila (valores + enlace del comercio) de una hoja a otra. */
+function moverFila_(origen, fila, destino, extra) {
+  const valores = origen.getRange(fila, 1, 1, P_NCOLS).getValues()[0];
+  const enlace = origen.getRange(fila, PCOL.COMERCIO).getRichTextValue();
+  const filaDestino = destino.getLastRow() + 1;
+  const fila5 = valores.slice(0, P_NCOLS).concat(extra === undefined ? [] : [extra]);
+  destino.getRange(filaDestino, 1, 1, fila5.length).setValues([fila5]);
+  if (enlace) destino.getRange(filaDestino, PCOL.COMERCIO).setRichTextValue(enlace);
+  origen.deleteRow(fila);
+  return valores;
+}
+
+function marcarEnRegistro_(idTicket, estado) {
+  const hoja = obtenerHoja_();
+  const fila = filaDeTicket_(hoja, COL.COMERCIO, idTicket);
+  if (fila > 0) hoja.getRange(fila, COL.ESTADO).setValue(estado);
+}
+
+function pestanaBorrados_(ss) {
+  let h = ss.getSheetByName(PESTANA_BORRADOS);
+  if (!h) {
+    h = ss.insertSheet(PESTANA_BORRADOS);
+    h.getRange(1, 1, 1, P_NCOLS + 1).setValues([P_CABECERAS.concat(['Borrado el'])])
+      .setFontWeight('bold').setBackground('#fce8e6');
+    h.setFrozenRows(1);
+    h.getRange('A2:A').setNumberFormat('dd/mm/yyyy');
+    h.getRange('B2:D').setNumberFormat('@');
+    h.getRange('E2:E').setNumberFormat(FORMATO_EUROS);
+    h.getRange('F2:F').setNumberFormat('dd/mm/yyyy');
+    h.setTabColor('#d93025');
+  }
+  return h;
+}
+
+/** Borra un ticket de un proyecto activo: PDF y foto a la papelera; la fila pasa a "Tickets borrados". */
+function borrarTicket(proyectoId, idTicket) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+  try {
+    const p = obtenerProyecto_(proyectoId);
+    if (p.estado !== 'abierto') throw new Error('Para borrar tickets, el proyecto tiene que estar abierto. Reábrelo desde Histórico.');
+    const ss = SpreadsheetApp.openById(p.id);
+    const hoja = ss.getSheetByName(CONFIG.NOMBRE_PESTANA) || ss.getSheets()[0];
+    const fila = filaDeTicket_(hoja, PCOL.COMERCIO, idTicket);
+    if (fila < 0) throw new Error('No encuentro ese ticket en la hoja del proyecto.');
+
+    const url = hoja.getRange(fila, PCOL.COMERCIO).getRichTextValue().getLinkUrl();
+    const foto = archivoFotoDeTicket_(url);
+    const valores = moverFila_(hoja, fila, pestanaBorrados_(ss), new Date());
+    try { DriveApp.getFileById(idTicket).setTrashed(true); } catch (e) { /* ya no estaba */ }
+    if (foto) try { foto.setTrashed(true); } catch (e) { /* ignorar */ }
+    marcarEnRegistro_(idTicket, 'Borrado');
+
+    p.tickets = Math.max(0, (p.tickets || 0) - 1);
+    p.total = redondear_((p.total || 0) - (Number(valores[PCOL.IMPORTE - 1]) || 0));
+    guardarProyecto_(p);
+    return { detalle: listarTicketsProyecto(proyectoId), lista: listarProyectos() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Recupera un ticket borrado (si su PDF sigue en la papelera de Drive). */
+function recuperarTicket(proyectoId, idTicket) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+  try {
+    const p = obtenerProyecto_(proyectoId);
+    if (p.estado !== 'abierto') throw new Error('Para recuperar tickets, el proyecto tiene que estar abierto.');
+    const ss = SpreadsheetApp.openById(p.id);
+    const borrados = ss.getSheetByName(PESTANA_BORRADOS);
+    const fila = filaDeTicket_(borrados, PCOL.COMERCIO, idTicket);
+    if (fila < 0) throw new Error('No encuentro ese ticket entre los borrados.');
+
+    let pdf;
+    try {
+      pdf = DriveApp.getFileById(idTicket);
+      pdf.setTrashed(false);
+    } catch (e) {
+      throw new Error('El PDF de este ticket ya no está en la papelera de Drive (se vacía a los 30 días). No se puede recuperar.');
+    }
+    const foto = archivoFotoDeTicket_(pdf.getUrl());
+    if (foto) try { foto.setTrashed(false); } catch (e) { /* ignorar */ }
+
+    const hoja = ss.getSheetByName(CONFIG.NOMBRE_PESTANA) || ss.getSheets()[0];
+    const valores = moverFila_(borrados, fila, hoja);
+    marcarEnRegistro_(idTicket, '');
+
+    p.tickets = (p.tickets || 0) + 1;
+    p.total = redondear_((p.total || 0) + (Number(valores[PCOL.IMPORTE - 1]) || 0));
+    guardarProyecto_(p);
+    return { detalle: listarTicketsProyecto(proyectoId), lista: listarProyectos() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Marca en el registro todos los tickets de un proyecto (por nombre). */
+function marcarProyectoEnRegistro_(nombre, de, a) {
+  const hoja = obtenerHoja_();
+  const n = hoja.getLastRow() - 1;
+  if (n < 1) return;
+  const rango = hoja.getRange(2, COL.PROYECTO, n, COL.ESTADO - COL.PROYECTO + 1);
+  const valores = rango.getValues();
+  let cambios = false;
+  valores.forEach(function (v) {
+    const estado = String(v[COL.ESTADO - COL.PROYECTO]);
+    if (String(v[0]) === nombre && estado === de) { v[COL.ESTADO - COL.PROYECTO] = a; cambios = true; }
+  });
+  if (cambios) rango.setValues(valores);
+}
+
+/** Borra un proyecto: su carpeta (hoja, PDF, fotos e informe) va a la papelera de Drive. */
+function borrarProyecto(id) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+  try {
+    const p = obtenerProyecto_(id);
+    if (p.estado === 'borrado') throw new Error('Este proyecto ya está borrado.');
+    try {
+      DriveApp.getFolderById(p.carpetaId).setTrashed(true);
+    } catch (e) {
+      try { DriveApp.getFileById(p.id).setTrashed(true); } catch (x) { /* ya no existe */ }
+    }
+    marcarProyectoEnRegistro_(p.nombre, '', 'Proyecto borrado');
+    p.estadoPrevio = p.estado;
+    p.estado = 'borrado';
+    p.borrado = new Date().toISOString();
+    guardarProyecto_(p);
+    if (props_().getProperty('ULTIMO_PROYECTO') === id) props_().deleteProperty('ULTIMO_PROYECTO');
+    return listarProyectos();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Recupera un proyecto borrado mientras su carpeta siga en la papelera de Drive. */
+function recuperarProyecto(id) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+  try {
+    const p = obtenerProyecto_(id);
+    if (p.estado !== 'borrado') throw new Error('Este proyecto no está borrado.');
+    const destino = p.estadoPrevio === 'abierto' ? 'abierto' : 'cerrado';
+    if (destino === 'abierto') {
+      const repetido = leerProyectos_().some(function (o) {
+        return o.id !== p.id && o.estado === 'abierto' && normalizar_(o.nombre) === normalizar_(p.nombre);
+      });
+      if (repetido) throw new Error('Ya hay un proyecto activo con el nombre «' + p.nombre + '». Cámbiale el nombre a uno de los dos.');
+    }
+    try {
+      DriveApp.getFolderById(p.carpetaId).setTrashed(false);
+      DriveApp.getFileById(p.id).setTrashed(false);
+    } catch (e) {
+      throw new Error('La carpeta de este proyecto ya no está en la papelera de Drive (se vacía a los 30 días). No se puede recuperar.');
+    }
+    marcarProyectoEnRegistro_(p.nombre, 'Proyecto borrado', '');
+    p.estado = destino;
+    delete p.borrado;
+    delete p.estadoPrevio;
+    guardarProyecto_(p);
+    return listarProyectos();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Quita de la lista un proyecto borrado que ya no se puede recuperar. */
+function olvidarProyecto(id) {
+  const p = obtenerProyecto_(id);
+  if (p.estado !== 'borrado') throw new Error('Solo se pueden quitar proyectos borrados.');
+  props_().deleteProperty(PREFIJO_PROYECTO + id);
+  return listarProyectos();
 }
 
 function leerProyectos_() {
@@ -801,6 +1041,11 @@ function crearInformePdf_(p, d, ahora, firmante) {
  * buscando en "Fotos originales" un archivo con el mismo nombre.
  */
 function fotoDeTicket_(urlPdf) {
+  const f = archivoFotoDeTicket_(urlPdf);
+  return f ? f.getBlob() : null;
+}
+
+function archivoFotoDeTicket_(urlPdf) {
   const id = extraerIdArchivo_(urlPdf);
   if (!id) return null;
   try {
@@ -809,8 +1054,7 @@ function fotoDeTicket_(urlPdf) {
     const idFoto = m ? extraerIdArchivo_(m[1]) : null;
     if (idFoto) {
       try {
-        const f = DriveApp.getFileById(idFoto);
-        if (!f.isTrashed()) return f.getBlob();
+        return DriveApp.getFileById(idFoto);
       } catch (e) { /* se busca por nombre */ }
     }
     const base = pdf.getName().replace(/\.pdf$/i, '');
@@ -821,7 +1065,7 @@ function fotoDeTicket_(urlPdf) {
         const carpeta = fotos.next();
         for (const ext of ['.jpg', '.png']) {
           const it = carpeta.getFilesByName(base + ext);
-          if (it.hasNext()) return it.next().getBlob();
+          if (it.hasNext()) return it.next();
         }
       }
     }
@@ -1227,6 +1471,8 @@ function obtenerHoja_() {
     formatearHojaGastos_(hoja);
   }
   if (!ss.getSheetByName(CONFIG.NOMBRE_RESUMEN)) crearHojaResumen_(ss);
+  const cabEstado = hoja.getRange(1, COL.ESTADO);
+  if (!cabEstado.getValue()) cabEstado.setValue('Estado').setFontWeight('bold').setBackground('#e8f0fe');
   return hoja;
 }
 
