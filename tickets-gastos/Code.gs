@@ -139,7 +139,7 @@ function analizarTicket(imagenBase64, mimeType) {
     console.warn('OCR no disponible: ' + e);
   } finally {
     if (docId) {
-      try { DriveApp.getFileById(docId).setTrashed(true); } catch (e) { /* ignorar */ }
+      borrarTemporal_(docId);
     }
   }
 
@@ -226,39 +226,56 @@ function guardarTicket(datos) {
   const creados = [];
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
+  const filasEscritas = [];
   try {
+    // Se abren las hojas antes de crear nada, por si alguna no existe.
+    const hoja = obtenerHoja_();
+    const hp = p ? hojaProyecto_(p) : null;
+
     const pdf = destino.createFile(blobPdf);
     creados.push(pdf);
     const foto = obtenerSubcarpeta_(destino, CONFIG.SUBCARPETA_FOTOS).createFile(imagen);
     creados.push(foto);
     pdf.setDescription('Ticket de gasto. Foto original: ' + foto.getUrl());
-
-    // Fila en la hoja de cálculo
-    const hoja = obtenerHoja_();
-    const fila = hoja.getLastRow() + 1;
-    hoja.getRange(fila, 1, 1, NCOLS).setValues([[
-      new Date(Number(anio), mes - 1, dia), hora, comercio, categoria, proyecto, importe]]);
-    hoja.getRange(fila, COL.COMERCIO).setRichTextValue(
-      SpreadsheetApp.newRichTextValue().setText(comercio).setLinkUrl(pdf.getUrl()).build());
+    const enlace = SpreadsheetApp.newRichTextValue().setText(comercio).setLinkUrl(pdf.getUrl()).build();
+    const fechaValor = new Date(Number(anio), mes - 1, dia);
 
     // Fila en la hoja del proyecto
-    if (p) {
-      const hp = hojaProyecto_(p);
+    if (hp) {
       const filaP = hp.getLastRow() + 1;
-      hp.getRange(filaP, 1, 1, P_NCOLS).setValues([[
-        new Date(Number(anio), mes - 1, dia), hora, comercio, categoria, importe]]);
-      hp.getRange(filaP, PCOL.COMERCIO).setRichTextValue(
-        SpreadsheetApp.newRichTextValue().setText(comercio).setLinkUrl(pdf.getUrl()).build());
-      p.tickets = (p.tickets || 0) + 1;
-      p.total = redondear_((p.total || 0) + importe);
-      guardarProyecto_(p);
+      hp.getRange(filaP, 1, 1, P_NCOLS).setValues([[fechaValor, hora, comercio, categoria, importe]]);
+      filasEscritas.push({ hoja: hp, fila: filaP, col: PCOL.COMERCIO });
+      hp.getRange(filaP, PCOL.COMERCIO).setRichTextValue(enlace);
     }
+
+    // Fila en el registro general
+    const fila = hoja.getLastRow() + 1;
+    hoja.getRange(fila, 1, 1, NCOLS).setValues([[fechaValor, hora, comercio, categoria, proyecto, importe]]);
+    filasEscritas.push({ hoja: hoja, fila: fila, col: COL.COMERCIO });
+    hoja.getRange(fila, COL.COMERCIO).setRichTextValue(enlace);
     SpreadsheetApp.flush();
 
-    recordarCategoria_(comercio, categoria);
-    props_().setProperty('ULTIMO_PROYECTO', proyectoId);
+    // Lo que viene después no es imprescindible: si falla, el ticket ya está guardado.
+    try {
+      if (p) {
+        p.tickets = (p.tickets || 0) + 1;
+        p.total = redondear_((p.total || 0) + importe);
+        guardarProyecto_(p);
+      }
+      recordarCategoria_(comercio, categoria);
+      props_().setProperty('ULTIMO_PROYECTO', proyectoId);
+    } catch (e) {
+      console.warn('Ticket guardado, pero no se actualizaron los datos auxiliares: ' + e);
+    }
     return { pdfUrl: pdf.getUrl(), nombre: pdf.getName() };
   } catch (e) {
+    // Se deshace todo: filas escritas (si siguen siendo las nuestras) y archivos.
+    console.error('Error al guardar el ticket, se deshace: ' + (e && e.stack || e));
+    filasEscritas.reverse().forEach(function (f) {
+      try {
+        if (String(f.hoja.getRange(f.fila, f.col).getValue()) === comercio) f.hoja.deleteRow(f.fila);
+      } catch (x) { /* ignorar */ }
+    });
     creados.forEach(function (f) { try { f.setTrashed(true); } catch (x) { /* ignorar */ } });
     throw e;
   } finally {
@@ -725,7 +742,7 @@ function crearInformePdf_(p, d, ahora, firmante) {
     doc.saveAndClose();
     return DriveApp.getFileById(docId).getAs(MimeType.PDF).setName(titulo + '.pdf');
   } finally {
-    DriveApp.getFileById(docId).setTrashed(true);
+    borrarTemporal_(docId);
   }
 }
 
@@ -1020,6 +1037,18 @@ function guardarConfiguracion(cfg) {
 /* Drive y hoja de cálculo                                            */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Borra definitivamente un documento temporal (los que se usan para leer el
+ * ticket o generar un PDF), para que no se acumulen en la papelera.
+ */
+function borrarTemporal_(id) {
+  try {
+    Drive.Files.remove(id);
+  } catch (e) {
+    try { DriveApp.getFileById(id).setTrashed(true); } catch (x) { /* ya no existe */ }
+  }
+}
+
 function props_() {
   return PropertiesService.getScriptProperties();
 }
@@ -1300,7 +1329,7 @@ function crearPdf_(imagen, titulo, lineasInfo) {
     doc.saveAndClose();
     return DriveApp.getFileById(docId).getAs(MimeType.PDF).setName(titulo + '.pdf');
   } finally {
-    DriveApp.getFileById(docId).setTrashed(true);
+    borrarTemporal_(docId);
   }
 }
 
